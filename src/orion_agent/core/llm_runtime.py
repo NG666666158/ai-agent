@@ -18,6 +18,10 @@ class BaseLLMClient(ABC):
     def generate_text(self, *, system_prompt: str, user_prompt: str) -> str:
         raise NotImplementedError
 
+    @abstractmethod
+    def health(self) -> dict[str, str]:
+        raise NotImplementedError
+
 
 class OpenAILLMClient(BaseLLMClient):
     def __init__(self, settings: Settings) -> None:
@@ -57,6 +61,12 @@ class OpenAILLMClient(BaseLLMClient):
             timeout=self.settings.request_timeout,
         )
         return response.choices[0].message.content or ""
+
+    def health(self) -> dict[str, str]:
+        return {
+            "provider": "openai",
+            "mode": "fallback" if self._degraded else "online",
+        }
 
 
 class FallbackLLMClient(BaseLLMClient):
@@ -175,6 +185,12 @@ class FallbackLLMClient(BaseLLMClient):
             return json.loads(payload[start : end + 1])
         except Exception:
             return {}
+
+    def health(self) -> dict[str, str]:
+        return {
+            "provider": "fallback",
+            "mode": "fallback",
+        }
 
 
 def build_llm_client(settings: Settings) -> BaseLLMClient:

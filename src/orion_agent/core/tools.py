@@ -95,18 +95,21 @@ class ToolRegistry:
     def _web_search(self, query: str) -> str:
         if not self.settings.allow_online_search:
             return json.dumps([], ensure_ascii=False)
-        response = httpx.get(
-            self.settings.web_search_endpoint,
-            params={
-                "q": query,
-                "format": "json",
-                "no_html": "1",
-                "skip_disambig": "1",
-            },
-            timeout=self.settings.web_search_timeout,
-        )
-        response.raise_for_status()
-        payload = response.json()
+        try:
+            response = httpx.get(
+                self.settings.web_search_endpoint,
+                params={
+                    "q": query,
+                    "format": "json",
+                    "no_html": "1",
+                    "skip_disambig": "1",
+                },
+                timeout=self.settings.web_search_timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception:
+            return json.dumps([], ensure_ascii=False)
         results: list[dict[str, str]] = []
         seen_urls: set[str] = set()
         max_results = self.settings.web_search_max_results

@@ -27,12 +27,15 @@ def runtime_settings():
 
 @router.get("/system/health")
 def runtime_health():
-    settings = get_settings()
+    runtime = agent_service.runtime_summary()
     return {
-        "llm_mode": "fallback" if settings.force_fallback_llm or not settings.openai_api_key else "online",
-        "search_mode": "online" if settings.allow_online_search else "disabled",
-        "vector_backend": agent_service.vector_store.health()["backend"],
-        "vector_status": agent_service.vector_store.health()["status"],
+        "llm_mode": runtime["llm_mode"],
+        "llm_provider": runtime["llm_provider"],
+        "embedding_mode": runtime["embedding_mode"],
+        "embedding_provider": runtime["embedding_provider"],
+        "search_mode": "online" if get_settings().allow_online_search else "disabled",
+        "vector_backend": runtime["vector_backend"],
+        "vector_status": runtime["vector_status"],
         "tools": [tool.name for tool in agent_service.list_tools()],
     }
 

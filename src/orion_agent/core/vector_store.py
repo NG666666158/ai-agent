@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from uuid import NAMESPACE_URL, uuid5
 
 import httpx
 
@@ -81,7 +82,8 @@ class QdrantVectorStore(BaseVectorStore):
         json=payload,
         timeout=self.timeout,
       )
-      response.raise_for_status()
+      if response.status_code not in {200, 201, 409}:
+        response.raise_for_status()
       self._collection_checked = True
     except Exception:
       self._degraded = True
@@ -97,9 +99,10 @@ class QdrantVectorStore(BaseVectorStore):
     payload = {
       "points": [
         {
-          "id": record.id,
+          "id": str(uuid5(NAMESPACE_URL, record.id)),
           "vector": record.embedding,
           "payload": {
+            "memory_id": record.id,
             "scope": record.scope,
             "topic": record.topic,
             "created_at": record.created_at.isoformat(),
@@ -147,16 +150,25 @@ class QdrantVectorStore(BaseVectorStore):
       )
       response.raise_for_status()
       result = response.json().get("result", [])
-      return [str(item["id"]) for item in result]
+      resolved_ids: list[str] = []
+      for item in result:
+        payload = item.get("payload") or {}
+        resolved_ids.append(str(payload.get("memory_id") or item["id"]))
+      return resolved_ids
     except Exception:
       self._degraded = True
       return self.fallback.search(query_embedding=query_embedding, scope=scope, limit=limit)
 
   def health(self) -> dict[str, str]:
-    return {
-      "backend": self.backend,
-      "status": "degraded" if self._degraded else "ready",
-    }
+    if self._degraded:
+      return {"backend": self.backend, "status": "degraded"}
+    try:
+      response = httpx.get(f"{self.url}/readyz", headers=self._headers(), timeout=self.timeout)
+      response.raise_for_status()
+      return {"backend": self.backend, "status": "ready"}
+    except Exception:
+      self._degraded = True
+      return {"backend": self.backend, "status": "degraded"}
 
 
 def build_vector_store(settings: Settings, repository: TaskRepository) -> BaseVectorStore:

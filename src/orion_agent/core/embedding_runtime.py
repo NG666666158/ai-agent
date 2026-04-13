@@ -14,6 +14,10 @@ class BaseEmbedder(ABC):
     def embed(self, text: str) -> list[float]:
         raise NotImplementedError
 
+    @abstractmethod
+    def health(self) -> dict[str, str]:
+        raise NotImplementedError
+
 
 class HashingEmbedder(BaseEmbedder):
     def __init__(self, dimensions: int = 64) -> None:
@@ -29,12 +33,18 @@ class HashingEmbedder(BaseEmbedder):
             vector[index] += weight
         return normalize(vector)
 
+    def health(self) -> dict[str, str]:
+        return {
+            "provider": "hashing",
+            "mode": "fallback",
+        }
+
 
 class OpenAIEmbedder(BaseEmbedder):
     def __init__(self, settings: Settings) -> None:
         self.client = OpenAI(api_key=settings.openai_api_key, max_retries=0)
         self.model = settings.embedding_model
-        self.fallback = HashingEmbedder()
+        self.fallback = HashingEmbedder(dimensions=settings.vector_dimensions)
         self._degraded = False
 
     def embed(self, text: str) -> list[float]:
@@ -47,10 +57,16 @@ class OpenAIEmbedder(BaseEmbedder):
             self._degraded = True
             return self.fallback.embed(text)
 
+    def health(self) -> dict[str, str]:
+        return {
+            "provider": "openai",
+            "mode": "fallback" if self._degraded else "online",
+        }
+
 
 def build_embedder(settings: Settings) -> BaseEmbedder:
     if settings.force_fallback_llm or not settings.openai_api_key:
-        return HashingEmbedder()
+        return HashingEmbedder(dimensions=settings.vector_dimensions)
     return OpenAIEmbedder(settings)
 
 

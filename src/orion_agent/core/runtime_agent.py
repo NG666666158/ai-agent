@@ -118,11 +118,18 @@ class AgentService:
         return self.evaluator.evaluate(task)
 
     def runtime_summary(self) -> dict[str, object]:
+        vector_health = self.vector_store.health()
+        llm_health = self.llm_client.health()
+        embedding_health = self.embedder.health()
         return {
             "task_count": self.repository.count_tasks(),
             "memory_count": self.repository.count_long_term_memories(),
-            "vector_backend": self.vector_store.health()["backend"],
-            "vector_status": self.vector_store.health()["status"],
+            "vector_backend": vector_health["backend"],
+            "vector_status": vector_health["status"],
+            "llm_provider": llm_health["provider"],
+            "llm_mode": llm_health["mode"],
+            "embedding_provider": embedding_health["provider"],
+            "embedding_mode": embedding_health["mode"],
         }
 
     def _parse_goal(self, request: TaskCreateRequest) -> ParsedGoal:

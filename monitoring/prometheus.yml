@@ -6,4 +6,4 @@ scrape_configs:
   - job_name: "orion-agent"
     metrics_path: /api/system/metrics
     static_configs:
-      - targets: ["orion-agent:8011"]
+      - targets: ["host.docker.internal:8011"]
