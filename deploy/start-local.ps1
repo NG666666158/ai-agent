@@ -1,6 +1,18 @@
 $ErrorActionPreference = "Stop"
 $env:PYTHONPATH = "src"
 
+if (Test-Path "$PSScriptRoot\.env") {
+  Get-Content "$PSScriptRoot\.env" | ForEach-Object {
+    if ($_ -match '^\s*#' -or $_ -match '^\s*$') {
+      return
+    }
+    $name, $value = $_ -split '=', 2
+    if ($name) {
+      [Environment]::SetEnvironmentVariable($name.Trim(), ($value ?? "").Trim(), "Process")
+    }
+  }
+}
+
 python -m pip install -e .
 Set-Location "$PSScriptRoot\..\frontend"
 npm install

@@ -14,6 +14,7 @@ class AgentServiceTests(unittest.TestCase):
         self.temp_files: list[Path] = []
 
     def tearDown(self) -> None:
+        self.service.repository.close()
         for path in self.temp_files:
             if path.exists():
                 path.unlink()

@@ -14,6 +14,9 @@ class AgentServiceTests(unittest.TestCase):
             llm_client=FallbackLLMClient(),
         )
 
+    def tearDown(self) -> None:
+        self.service.repository.close()
+
     def test_create_task_completes_mvp_flow(self) -> None:
         response = self.service.create_and_run_task(
             TaskCreateRequest(

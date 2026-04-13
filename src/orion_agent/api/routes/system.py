@@ -12,7 +12,10 @@ router = APIRouter(tags=["system"])
 def runtime_settings():
     settings = get_settings()
     return {
+        "llm_provider": settings.llm_provider,
         "openai_model": settings.openai_model,
+        "minimax_model": settings.minimax_model,
+        "minimax_base_url": settings.minimax_base_url,
         "embedding_model": settings.embedding_model,
         "force_fallback_llm": settings.force_fallback_llm,
         "allow_online_search": settings.allow_online_search,
@@ -31,6 +34,7 @@ def runtime_health():
     return {
         "llm_mode": runtime["llm_mode"],
         "llm_provider": runtime["llm_provider"],
+        "llm_last_error": runtime["llm_last_error"],
         "embedding_mode": runtime["embedding_mode"],
         "embedding_provider": runtime["embedding_provider"],
         "search_mode": "online" if get_settings().allow_online_search else "disabled",
@@ -38,6 +42,11 @@ def runtime_health():
         "vector_status": runtime["vector_status"],
         "tools": [tool.name for tool in agent_service.list_tools()],
     }
+
+
+@router.get("/system/llm-probe")
+def llm_probe(perform_request: bool = False):
+    return agent_service.probe_llm(perform_request=perform_request)
 
 
 @router.get("/system/metrics", response_class=PlainTextResponse)

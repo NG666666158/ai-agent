@@ -164,3 +164,6 @@ class TaskRepository:
         with self._connect() as conn:
             row = conn.execute("SELECT COUNT(*) FROM long_term_memories").fetchone()
         return int(row[0] if row else 0)
+
+    def close(self) -> None:
+        self._connection.close()

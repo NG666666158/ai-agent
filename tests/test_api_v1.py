@@ -9,6 +9,9 @@ class ApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
 
+    def tearDown(self) -> None:
+        self.client.close()
+
     def test_healthz(self) -> None:
         response = self.client.get("/healthz")
 
@@ -50,6 +53,7 @@ class ApiTests(unittest.TestCase):
         evaluation_response = self.client.get(f"/api/tasks/{task_id}/evaluation")
         runtime_response = self.client.get("/api/system/runtime")
         health_response = self.client.get("/api/system/health")
+        probe_response = self.client.get("/api/system/llm-probe")
         metrics_response = self.client.get("/api/system/metrics")
 
         self.assertEqual(detail_response.status_code, 200)
@@ -58,10 +62,13 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(evaluation_response.status_code, 200)
         self.assertEqual(runtime_response.status_code, 200)
         self.assertEqual(health_response.status_code, 200)
+        self.assertEqual(probe_response.status_code, 200)
         self.assertEqual(metrics_response.status_code, 200)
         self.assertGreaterEqual(len(tools_response.json()), 4)
         self.assertGreaterEqual(evaluation_response.json()["score"], 0.8)
         self.assertIn("vector_backend", runtime_response.json())
+        self.assertIn("llm_provider", runtime_response.json())
+        self.assertIn("status", probe_response.json())
         self.assertIn("orion_tasks_total", metrics_response.text)
 
 

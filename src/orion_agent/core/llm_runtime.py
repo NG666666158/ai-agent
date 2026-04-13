@@ -22,6 +22,10 @@ class BaseLLMClient(ABC):
     def health(self) -> dict[str, str]:
         raise NotImplementedError
 
+    @abstractmethod
+    def probe(self) -> dict[str, Any]:
+        raise NotImplementedError
+
 
 class OpenAILLMClient(BaseLLMClient):
     def __init__(self, settings: Settings) -> None:
@@ -29,6 +33,7 @@ class OpenAILLMClient(BaseLLMClient):
         self.client = OpenAI(api_key=settings.openai_api_key, max_retries=0)
         self.fallback = FallbackLLMClient()
         self._degraded = False
+        self._last_error: str | None = None
 
     def generate_json(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         if self._degraded:
@@ -38,6 +43,7 @@ class OpenAILLMClient(BaseLLMClient):
             return json.loads(content)
         except Exception:
             self._degraded = True
+            self._last_error = "openai generation failed; degraded to fallback"
             return self.fallback.generate_json(system_prompt=system_prompt, user_prompt=user_prompt)
 
     def generate_text(self, *, system_prompt: str, user_prompt: str) -> str:
@@ -47,6 +53,7 @@ class OpenAILLMClient(BaseLLMClient):
             return self._complete(system_prompt=system_prompt, user_prompt=user_prompt, json_mode=False)
         except Exception:
             self._degraded = True
+            self._last_error = "openai generation failed; degraded to fallback"
             return self.fallback.generate_text(system_prompt=system_prompt, user_prompt=user_prompt)
 
     def _complete(self, *, system_prompt: str, user_prompt: str, json_mode: bool) -> str:
@@ -66,7 +73,130 @@ class OpenAILLMClient(BaseLLMClient):
         return {
             "provider": "openai",
             "mode": "fallback" if self._degraded else "online",
+            "last_error": self._last_error or "",
         }
+
+    def probe(self) -> dict[str, Any]:
+        try:
+            preview = self._complete(
+                system_prompt="You are a connectivity probe.",
+                user_prompt="Reply with the single word ok.",
+                json_mode=False,
+            )
+            return {
+                "provider": "openai",
+                "status": "ready",
+                "mode": "fallback" if self._degraded else "online",
+                "preview": preview[:120],
+            }
+        except Exception as exc:
+            self._last_error = f"{type(exc).__name__}: {exc}"
+            return {
+                "provider": "openai",
+                "status": "error",
+                "mode": "fallback" if self._degraded else "online",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+
+
+class MiniMaxLLMClient(BaseLLMClient):
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self.fallback = FallbackLLMClient()
+        self._degraded = False
+        self._last_error: str | None = None
+        try:
+            from anthropic import Anthropic
+        except ImportError as exc:
+            raise RuntimeError("anthropic dependency is required for MiniMax provider") from exc
+        self.client = Anthropic(
+            api_key=settings.minimax_api_key,
+            base_url=settings.minimax_base_url,
+            max_retries=settings.minimax_max_retries,
+        )
+
+    def generate_json(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+        if self._degraded:
+            return self.fallback.generate_json(system_prompt=system_prompt, user_prompt=user_prompt)
+        try:
+            content = self._complete(system_prompt=system_prompt, user_prompt=user_prompt, json_mode=True)
+            return json.loads(content)
+        except Exception as exc:
+            self._degraded = True
+            self._last_error = f"{type(exc).__name__}: {exc}"
+            return self.fallback.generate_json(system_prompt=system_prompt, user_prompt=user_prompt)
+
+    def generate_text(self, *, system_prompt: str, user_prompt: str) -> str:
+        if self._degraded:
+            return self.fallback.generate_text(system_prompt=system_prompt, user_prompt=user_prompt)
+        try:
+            return self._complete(system_prompt=system_prompt, user_prompt=user_prompt, json_mode=False)
+        except Exception as exc:
+            self._degraded = True
+            self._last_error = f"{type(exc).__name__}: {exc}"
+            return self.fallback.generate_text(system_prompt=system_prompt, user_prompt=user_prompt)
+
+    def _complete(self, *, system_prompt: str, user_prompt: str, json_mode: bool) -> str:
+        prompt = user_prompt
+        if json_mode:
+            prompt = (
+                f"{user_prompt}\n\n"
+                "Return valid JSON only. Do not wrap the result in markdown fences."
+            )
+        response = self.client.messages.create(
+            model=self.settings.minimax_model,
+            max_tokens=1_500,
+            system=system_prompt,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt,
+                        }
+                    ],
+                }
+            ],
+            timeout=self.settings.request_timeout,
+        )
+        parts: list[str] = []
+        for block in response.content:
+            text = getattr(block, "text", None)
+            if text:
+                parts.append(text)
+        return "".join(parts).strip()
+
+    def health(self) -> dict[str, str]:
+        return {
+            "provider": "minimax",
+            "mode": "fallback" if self._degraded else "online",
+            "last_error": self._last_error or "",
+        }
+
+    def probe(self) -> dict[str, Any]:
+        try:
+            preview = self._complete(
+                system_prompt="You are a connectivity probe.",
+                user_prompt="Reply with the single word ok.",
+                json_mode=False,
+            )
+            return {
+                "provider": "minimax",
+                "status": "ready",
+                "mode": "fallback" if self._degraded else "online",
+                "preview": preview[:120],
+            }
+        except Exception as exc:
+            self._last_error = f"{type(exc).__name__}: {exc}"
+            return {
+                "provider": "minimax",
+                "status": "error",
+                "mode": "fallback" if self._degraded else "online",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
 
 
 class FallbackLLMClient(BaseLLMClient):
@@ -190,12 +320,26 @@ class FallbackLLMClient(BaseLLMClient):
         return {
             "provider": "fallback",
             "mode": "fallback",
+            "last_error": "",
+        }
+
+    def probe(self) -> dict[str, Any]:
+        return {
+            "provider": "fallback",
+            "status": "ready",
+            "mode": "fallback",
+            "preview": "fallback-active",
         }
 
 
 def build_llm_client(settings: Settings) -> BaseLLMClient:
     if settings.force_fallback_llm:
         return FallbackLLMClient()
+    if settings.llm_provider == "minimax" and settings.minimax_api_key:
+        try:
+            return MiniMaxLLMClient(settings)
+        except Exception:
+            return FallbackLLMClient()
     if settings.openai_api_key:
         return OpenAILLMClient(settings)
     return FallbackLLMClient()

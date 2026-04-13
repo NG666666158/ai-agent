@@ -128,9 +128,38 @@ class AgentService:
             "vector_status": vector_health["status"],
             "llm_provider": llm_health["provider"],
             "llm_mode": llm_health["mode"],
+            "llm_last_error": llm_health.get("last_error", ""),
             "embedding_provider": embedding_health["provider"],
             "embedding_mode": embedding_health["mode"],
         }
+
+    def probe_llm(self, perform_request: bool = False) -> dict[str, object]:
+        provider = self.settings.llm_provider
+        has_key = bool(
+            self.settings.minimax_api_key if provider == "minimax" else self.settings.openai_api_key
+        )
+        configured = has_key or provider == "fallback" or self.settings.force_fallback_llm
+        active = self.llm_client.health()
+        payload: dict[str, object] = {
+            "provider": provider,
+            "configured": configured,
+            "has_api_key": has_key,
+            "forced_fallback": self.settings.force_fallback_llm,
+            "active_provider": active["provider"],
+            "active_mode": active["mode"],
+            "active_last_error": active.get("last_error", ""),
+            "model": self.settings.minimax_model if provider == "minimax" else self.settings.openai_model,
+        }
+        if provider == "minimax":
+            payload["base_url"] = self.settings.minimax_base_url
+        if not configured:
+            payload["status"] = "missing_credentials"
+            return payload
+        if perform_request:
+            payload.update(self.llm_client.probe())
+        else:
+            payload["status"] = "configured"
+        return payload
 
     def _parse_goal(self, request: TaskCreateRequest) -> ParsedGoal:
         system_prompt, user_prompt = self.prompts.parse_goal_messages(request.model_dump_json(indent=2))
