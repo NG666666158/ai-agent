@@ -1,0 +1,55 @@
+from fastapi import APIRouter
+from fastapi.responses import PlainTextResponse
+
+from orion_agent.core.config import get_settings
+from orion_agent.dependencies import agent_service
+
+
+router = APIRouter(tags=["system"])
+
+
+@router.get("/system/runtime")
+def runtime_settings():
+    settings = get_settings()
+    return {
+        "openai_model": settings.openai_model,
+        "embedding_model": settings.embedding_model,
+        "force_fallback_llm": settings.force_fallback_llm,
+        "allow_online_search": settings.allow_online_search,
+        "web_search_provider": settings.web_search_provider,
+        "web_search_endpoint": settings.web_search_endpoint,
+        "web_search_max_results": settings.web_search_max_results,
+        "vector_backend": settings.vector_backend,
+        "vector_service_url": settings.vector_service_url,
+        "vector_collection": settings.vector_collection,
+    }
+
+
+@router.get("/system/health")
+def runtime_health():
+    settings = get_settings()
+    return {
+        "llm_mode": "fallback" if settings.force_fallback_llm or not settings.openai_api_key else "online",
+        "search_mode": "online" if settings.allow_online_search else "disabled",
+        "vector_backend": agent_service.vector_store.health()["backend"],
+        "vector_status": agent_service.vector_store.health()["status"],
+        "tools": [tool.name for tool in agent_service.list_tools()],
+    }
+
+
+@router.get("/system/metrics", response_class=PlainTextResponse)
+def runtime_metrics():
+    runtime = agent_service.runtime_summary()
+    return "\n".join(
+        [
+            "# HELP orion_tasks_total Total tasks stored by the agent",
+            "# TYPE orion_tasks_total gauge",
+            f"orion_tasks_total {runtime['task_count']}",
+            "# HELP orion_memories_total Total long-term memories stored by the agent",
+            "# TYPE orion_memories_total gauge",
+            f"orion_memories_total {runtime['memory_count']}",
+            "# HELP orion_vector_store_up Vector store health flag",
+            "# TYPE orion_vector_store_up gauge",
+            f"orion_vector_store_up {1 if runtime['vector_status'] == 'ready' else 0}",
+        ]
+    )
