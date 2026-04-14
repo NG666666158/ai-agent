@@ -18,6 +18,7 @@ class TaskStatus(str, Enum):
     PLANNED = "PLANNED"
     RUNNING = "RUNNING"
     WAITING_TOOL = "WAITING_TOOL"
+    REPLANNING = "REPLANNING"
     REFLECTING = "REFLECTING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
@@ -42,6 +43,18 @@ class ToolPermission(str, Enum):
 class ToolCallStatus(str, Enum):
     SUCCESS = "SUCCESS"
     ERROR = "ERROR"
+
+
+class FailureCategory(str, Enum):
+    NONE = "NONE"
+    INPUT_ERROR = "INPUT_ERROR"
+    NETWORK_ERROR = "NETWORK_ERROR"
+    TOOL_TIMEOUT = "TOOL_TIMEOUT"
+    TOOL_UNAVAILABLE = "TOOL_UNAVAILABLE"
+    PERMISSION_DENIED = "PERMISSION_DENIED"
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    REVIEW_FAILED = "REVIEW_FAILED"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
 class TaskCreateRequest(BaseModel):
@@ -71,6 +84,14 @@ class MemoryEntry(BaseModel):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class ProgressUpdate(BaseModel):
+    id: str = Field(default_factory=lambda: f"progress_{uuid4().hex[:8]}")
+    stage: str
+    message: str
+    detail: str | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class LongTermMemoryRecord(BaseModel):
     id: str = Field(default_factory=lambda: f"ltm_{uuid4().hex[:8]}")
     scope: str = "default"
@@ -89,6 +110,7 @@ class ToolDefinition(BaseModel):
     output_schema: dict[str, str]
     timeout_ms: int = 15_000
     permission_level: ToolPermission = ToolPermission.SAFE
+    max_retries: int = 0
 
 
 class ToolInvocation(BaseModel):
@@ -99,6 +121,8 @@ class ToolInvocation(BaseModel):
     input_payload: dict[str, Any] = Field(default_factory=dict)
     output_preview: str | None = None
     error: str | None = None
+    failure_category: FailureCategory = FailureCategory.NONE
+    attempt_count: int = 1
     started_at: datetime = Field(default_factory=utcnow)
     completed_at: datetime = Field(default_factory=utcnow)
 
@@ -128,9 +152,15 @@ class TaskRecord(BaseModel):
     parsed_goal: ParsedGoal | None = None
     steps: list[Step] = Field(default_factory=list)
     result: str | None = None
+    live_result: str | None = None
+    retry_count: int = 0
+    replan_count: int = 0
+    failure_category: FailureCategory = FailureCategory.NONE
+    failure_message: str | None = None
     memory: list[MemoryEntry] = Field(default_factory=list)
     recalled_memories: list[LongTermMemoryRecord] = Field(default_factory=list)
     tool_invocations: list[ToolInvocation] = Field(default_factory=list)
+    progress_updates: list[ProgressUpdate] = Field(default_factory=list)
     review: TaskReview | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -144,9 +174,15 @@ class TaskResponse(BaseModel):
     parsed_goal: ParsedGoal | None = None
     steps: list[Step]
     result: str | None = None
+    live_result: str | None = None
+    retry_count: int = 0
+    replan_count: int = 0
+    failure_category: FailureCategory = FailureCategory.NONE
+    failure_message: str | None = None
     memory: list[MemoryEntry]
     recalled_memories: list[LongTermMemoryRecord]
     tool_invocations: list[ToolInvocation]
+    progress_updates: list[ProgressUpdate]
     review: TaskReview | None = None
 
     @classmethod

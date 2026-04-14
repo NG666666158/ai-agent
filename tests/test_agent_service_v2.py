@@ -1,16 +1,18 @@
 import unittest
 from pathlib import Path
-from uuid import uuid4
 
-from orion_agent.core.agent import AgentService
+from orion_agent.core.llm_runtime import FallbackLLMClient
 from orion_agent.core.models import TaskCreateRequest, TaskStatus
 from orion_agent.core.repository import TaskRepository
+from orion_agent.core.runtime_agent import AgentService
 
 
 class AgentServiceTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.db_path = f":memory:{uuid4().hex}"
-        self.service = AgentService(repository=TaskRepository(db_path=":memory:"))
+        self.service = AgentService(
+            repository=TaskRepository(db_path=":memory:"),
+            llm_client=FallbackLLMClient(),
+        )
         self.temp_files: list[Path] = []
 
     def tearDown(self) -> None:
@@ -29,6 +31,7 @@ class AgentServiceTests(unittest.TestCase):
                     "The system should support task parsing, planning, tool usage, "
                     "short-term memory, and structured result delivery."
                 ),
+                enable_web_search=False,
             )
         )
 
@@ -46,6 +49,7 @@ class AgentServiceTests(unittest.TestCase):
                 goal="Generate a deliverable from a local document",
                 source_path=str(source_file),
                 expected_output="markdown",
+                enable_web_search=False,
             )
         )
 
@@ -55,7 +59,7 @@ class AgentServiceTests(unittest.TestCase):
 
     def test_repository_persists_task_for_listing(self) -> None:
         created = self.service.create_and_run_task(
-            TaskCreateRequest(goal="Generate project brief", expected_output="markdown")
+            TaskCreateRequest(goal="Generate project brief", expected_output="markdown", enable_web_search=False)
         )
 
         listed = self.service.list_tasks(limit=10)

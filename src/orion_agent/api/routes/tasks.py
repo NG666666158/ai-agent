@@ -1,4 +1,7 @@
+import json
+
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from orion_agent.core.models import TaskCreateRequest, TaskResponse
 from orion_agent.dependencies import agent_service
@@ -12,6 +15,11 @@ def create_task(payload: TaskCreateRequest) -> TaskResponse:
     return agent_service.create_and_run_task(payload)
 
 
+@router.post("/tasks/launch", response_model=TaskResponse)
+def launch_task(payload: TaskCreateRequest) -> TaskResponse:
+    return agent_service.create_task_async(payload)
+
+
 @router.get("/tasks", response_model=list[TaskResponse])
 def list_tasks(limit: int = Query(default=20, ge=1, le=100)) -> list[TaskResponse]:
     return agent_service.list_tasks(limit=limit)
@@ -23,6 +31,24 @@ def get_task(task_id: str) -> TaskResponse:
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+@router.get("/tasks/{task_id}/stream")
+def stream_task(task_id: str):
+    def event_generator():
+        for item in agent_service.stream_task_events(task_id):
+            yield f"event: {item['event']}\n"
+            yield f"data: {json.dumps(item['data'], ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/tasks/{task_id}/steps")

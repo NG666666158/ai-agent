@@ -1,21 +1,28 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import httpx
 
 from orion_agent.core.config import Settings
-from orion_agent.core.models import ToolDefinition, ToolPermission
+from orion_agent.core.models import FailureCategory, ToolDefinition, ToolPermission
 
 
 ToolHandler = Callable[..., str]
 
 
+class ToolExecutionError(RuntimeError):
+    def __init__(self, message: str, *, category: FailureCategory, retryable: bool) -> None:
+        super().__init__(message)
+        self.category = category
+        self.retryable = retryable
+
+
 class ToolRegistry:
-    """Minimal but structured tool registry for the MVP."""
+    """Structured tool registry for the Orion Agent runtime."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -38,6 +45,7 @@ class ToolRegistry:
                 description="读取本地文本文件内容。",
                 input_schema={"path": "string"},
                 output_schema={"content": "string"},
+                max_retries=0,
             ),
             "extract_keywords": ToolDefinition(
                 name="extract_keywords",
@@ -51,6 +59,7 @@ class ToolRegistry:
                 input_schema={"query": "string"},
                 output_schema={"results": "string"},
                 permission_level=ToolPermission.SAFE,
+                max_retries=2,
             ),
             "generate_markdown": ToolDefinition(
                 name="generate_markdown",
@@ -58,11 +67,18 @@ class ToolRegistry:
                 input_schema={"title": "string", "sections": "array"},
                 output_schema={"markdown": "string"},
                 permission_level=ToolPermission.SAFE,
+                max_retries=0,
             ),
         }
 
     def list_definitions(self) -> list[ToolDefinition]:
         return list(self._definitions.values())
+
+    def get_definition(self, tool_name: str) -> ToolDefinition:
+        definition = self._definitions.get(tool_name)
+        if definition is None:
+            raise ValueError(f"Unknown tool: {tool_name}")
+        return definition
 
     def invoke(self, tool_name: str, **kwargs: Any) -> str:
         handler = self._handlers.get(tool_name)
@@ -77,7 +93,26 @@ class ToolRegistry:
         return f"{cleaned[:177]}..."
 
     def _read_local_file(self, path: str) -> str:
-        return Path(path).read_text(encoding="utf-8")
+        try:
+            return Path(path).read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            raise ToolExecutionError(
+                f"Local file does not exist: {path}",
+                category=FailureCategory.INPUT_ERROR,
+                retryable=False,
+            ) from exc
+        except PermissionError as exc:
+            raise ToolExecutionError(
+                f"Permission denied when reading file: {path}",
+                category=FailureCategory.PERMISSION_DENIED,
+                retryable=False,
+            ) from exc
+        except OSError as exc:
+            raise ToolExecutionError(
+                f"Unable to read local file: {path}",
+                category=FailureCategory.TOOL_UNAVAILABLE,
+                retryable=False,
+            ) from exc
 
     def _extract_keywords(self, text: str) -> str:
         words = [word.strip(".,:;()[]{}").lower() for word in text.split()]
@@ -108,8 +143,25 @@ class ToolRegistry:
             )
             response.raise_for_status()
             payload = response.json()
-        except Exception:
-            return json.dumps([], ensure_ascii=False)
+        except httpx.TimeoutException as exc:
+            raise ToolExecutionError(
+                "Web search request timed out.",
+                category=FailureCategory.TOOL_TIMEOUT,
+                retryable=True,
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ToolExecutionError(
+                "Web search request failed.",
+                category=FailureCategory.NETWORK_ERROR,
+                retryable=True,
+            ) from exc
+        except Exception as exc:
+            raise ToolExecutionError(
+                "Web search tool is unavailable.",
+                category=FailureCategory.TOOL_UNAVAILABLE,
+                retryable=False,
+            ) from exc
+
         results: list[dict[str, str]] = []
         seen_urls: set[str] = set()
         max_results = self.settings.web_search_max_results

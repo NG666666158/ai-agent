@@ -1,4 +1,5 @@
 import unittest
+import time
 
 from fastapi.testclient import TestClient
 
@@ -70,6 +71,36 @@ class ApiTests(unittest.TestCase):
         self.assertIn("llm_provider", runtime_response.json())
         self.assertIn("status", probe_response.json())
         self.assertIn("orion_tasks_total", metrics_response.text)
+
+    def test_async_launch_endpoint_returns_early_and_task_completes(self) -> None:
+        launch_response = self.client.post(
+            "/api/tasks/launch",
+            json={
+                "goal": "Show streaming progress in Chinese UI",
+                "constraints": ["Use markdown"],
+                "expected_output": "markdown",
+                "enable_web_search": False,
+            },
+        )
+
+        self.assertEqual(launch_response.status_code, 200)
+        task = launch_response.json()
+        self.assertIn(task["status"], {"CREATED", "PARSED", "PLANNED", "RUNNING"})
+        self.assertIn("progress_updates", task)
+        self.assertIn("live_result", task)
+
+        task_id = task["id"]
+        deadline = time.time() + 5
+        latest = task
+        while time.time() < deadline:
+            latest = self.client.get(f"/api/tasks/{task_id}").json()
+            if latest["status"] in {"COMPLETED", "FAILED"}:
+                break
+            time.sleep(0.05)
+
+        self.assertEqual(latest["status"], "COMPLETED")
+        self.assertGreaterEqual(len(latest["progress_updates"]), 3)
+        self.assertIn("live_result", latest)
 
 
 if __name__ == "__main__":

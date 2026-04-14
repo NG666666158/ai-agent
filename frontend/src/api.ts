@@ -3,6 +3,14 @@ export type Task = {
   title: string;
   status: string;
   result: string | null;
+  live_result: string | null;
+  progress_updates: Array<{
+    id: string;
+    stage: string;
+    message: string;
+    detail: string | null;
+    created_at: string;
+  }>;
   steps: Array<{
     id: string;
     name: string;
@@ -68,6 +76,14 @@ export function createTask(payload: Record<string, unknown>): Promise<Task> {
   });
 }
 
+export function launchTask(payload: Record<string, unknown>): Promise<Task> {
+  return api<Task>("/api/tasks/launch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function searchMemories(query: string, scope: string): Promise<MemoryRecord[]> {
   const url = `/api/memories/search?query=${encodeURIComponent(query)}&scope=${encodeURIComponent(scope)}`;
   return api<MemoryRecord[]>(url);
@@ -83,4 +99,32 @@ export function getHealthInfo(): Promise<HealthInfo> {
 
 export function getTaskEvaluation(taskId: string): Promise<Evaluation> {
   return api<Evaluation>(`/api/tasks/${taskId}/evaluation`);
+}
+
+export function streamTask(
+  taskId: string,
+  handlers: {
+    onUpdate: (task: Task) => void;
+    onError?: () => void;
+  },
+) {
+  const source = new EventSource(`/api/tasks/${taskId}/stream`);
+  const handleMessage = (event: MessageEvent<string>) => {
+    handlers.onUpdate(JSON.parse(event.data) as Task);
+  };
+
+  source.addEventListener("task_update", handleMessage as EventListener);
+  source.addEventListener(
+    "completed",
+    ((event: MessageEvent<string>) => {
+      handleMessage(event);
+      source.close();
+    }) as EventListener,
+  );
+  source.addEventListener("error", () => {
+    handlers.onError?.();
+    source.close();
+  });
+
+  return source;
 }

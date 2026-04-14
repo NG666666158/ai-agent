@@ -16,12 +16,12 @@ export function SettingsPage() {
   return (
     <section className="grid">
       <section className="panel">
-        <h2>Runtime config</h2>
-        <pre>{runtime ? JSON.stringify(runtime, null, 2) : "Loading..."}</pre>
+        <h2>运行配置</h2>
+        <pre>{runtime ? JSON.stringify(runtime, null, 2) : "加载中..."}</pre>
       </section>
       <section className="panel">
-        <h2>Health status</h2>
-        <pre>{health ? JSON.stringify(health, null, 2) : "Loading..."}</pre>
+        <h2>健康状态</h2>
+        <pre>{health ? JSON.stringify(health, null, 2) : "加载中..."}</pre>
       </section>
     </section>
   );

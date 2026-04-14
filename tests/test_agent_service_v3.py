@@ -1,8 +1,10 @@
 import unittest
 from pathlib import Path
+import time
+from unittest.mock import Mock
 
 from orion_agent.core.llm_runtime import FallbackLLMClient
-from orion_agent.core.models import TaskCreateRequest, TaskStatus
+from orion_agent.core.models import FailureCategory, TaskCreateRequest, TaskReview, TaskStatus
 from orion_agent.core.repository import TaskRepository
 from orion_agent.core.runtime_agent import AgentService
 
@@ -114,6 +116,58 @@ class AgentServiceTests(unittest.TestCase):
         self.assertIsNotNone(evaluation)
         self.assertGreaterEqual(evaluation.score, 0.8)
         self.assertTrue(any("task completed" in item for item in evaluation.checks))
+
+    def test_create_task_async_eventually_completes(self) -> None:
+        launched = self.service.create_task_async(
+            TaskCreateRequest(
+                goal="Stream task progress for the UI",
+                expected_output="markdown",
+                enable_web_search=False,
+            )
+        )
+
+        self.assertIn(launched.status, {TaskStatus.CREATED, TaskStatus.PARSED, TaskStatus.PLANNED, TaskStatus.RUNNING})
+
+        deadline = time.time() + 5
+        latest = None
+        while time.time() < deadline:
+            latest = self.service.get_task(launched.id)
+            if latest and latest.status in {TaskStatus.COMPLETED, TaskStatus.FAILED}:
+                break
+            time.sleep(0.05)
+
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.status, TaskStatus.COMPLETED)
+        self.assertGreaterEqual(len(latest.progress_updates), 3)
+
+    def test_review_failure_triggers_single_replan_then_completes(self) -> None:
+        self.service.reflector.review = Mock(
+            side_effect=[
+                TaskReview(
+                    passed=False,
+                    summary="第一次评审发现结构不完整，需要补充。",
+                    checklist=["补充结论", "补充步骤说明"],
+                ),
+                TaskReview(
+                    passed=True,
+                    summary="修订后通过评审。",
+                    checklist=["通过"],
+                ),
+            ]
+        )
+
+        response = self.service.create_and_run_task(
+            TaskCreateRequest(
+                goal="生成一个需要修订后再通过的交付结果",
+                expected_output="markdown",
+                enable_web_search=False,
+            )
+        )
+
+        self.assertEqual(response.status, TaskStatus.COMPLETED)
+        self.assertEqual(response.replan_count, 1)
+        self.assertEqual(response.failure_category, FailureCategory.NONE)
+        self.assertTrue(any(item.stage == "replanning" for item in response.progress_updates))
 
 
 if __name__ == "__main__":

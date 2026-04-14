@@ -27,6 +27,8 @@ class Settings:
     web_search_max_results: int = field(default_factory=lambda: int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5")))
     web_search_timeout: float = field(default_factory=lambda: float(os.getenv("WEB_SEARCH_TIMEOUT", "12")))
     request_timeout: float = field(default_factory=lambda: float(os.getenv("LLM_TIMEOUT", "45")))
+    tool_max_retries: int = field(default_factory=lambda: int(os.getenv("AGENT_TOOL_MAX_RETRIES", "1")))
+    replan_limit: int = field(default_factory=lambda: int(os.getenv("AGENT_REPLAN_LIMIT", "1")))
     vector_backend: str = field(default_factory=lambda: os.getenv("VECTOR_BACKEND", "local"))
     vector_service_url: str = field(default_factory=lambda: os.getenv("VECTOR_SERVICE_URL", "http://127.0.0.1:6333"))
     vector_collection: str = field(default_factory=lambda: os.getenv("VECTOR_COLLECTION", "orion_agent_memories"))

@@ -2,15 +2,19 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
-from orion_agent.core.agent import AgentService
+from orion_agent.core.llm_runtime import FallbackLLMClient
 from orion_agent.core.models import TaskCreateRequest, TaskStatus
 from orion_agent.core.repository import TaskRepository
+from orion_agent.core.runtime_agent import AgentService
 
 
 class AgentServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.db_path = Path(f"test_agent_{uuid4().hex}.db").resolve()
-        self.service = AgentService(repository=TaskRepository(db_path=db_path))
+        self.service = AgentService(
+            repository=TaskRepository(db_path=str(self.db_path)),
+            llm_client=FallbackLLMClient(),
+        )
         self.temp_files: list[Path] = [self.db_path]
 
     def tearDown(self) -> None:
@@ -26,6 +30,7 @@ class AgentServiceTests(unittest.TestCase):
                 constraints=["聚焦项目规划场景", "输出 markdown"],
                 expected_output="markdown",
                 source_text="系统需要具备任务解析、计划生成、工具调用、短期记忆和结果输出能力。",
+                enable_web_search=False,
             )
         )
 
@@ -45,6 +50,7 @@ class AgentServiceTests(unittest.TestCase):
                 goal="基于本地文档生成交付物",
                 source_path=str(source_file),
                 expected_output="markdown",
+                enable_web_search=False,
             )
         )
 
@@ -54,7 +60,7 @@ class AgentServiceTests(unittest.TestCase):
 
     def test_repository_persists_task_for_listing(self) -> None:
         created = self.service.create_and_run_task(
-            TaskCreateRequest(goal="生成项目说明", expected_output="markdown")
+            TaskCreateRequest(goal="生成项目说明", expected_output="markdown", enable_web_search=False)
         )
 
         listed = self.service.list_tasks(limit=10)

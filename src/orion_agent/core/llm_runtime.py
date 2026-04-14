@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from typing import Any
 
 from openai import OpenAI
@@ -16,6 +17,10 @@ class BaseLLMClient(ABC):
 
     @abstractmethod
     def generate_text(self, *, system_prompt: str, user_prompt: str) -> str:
+        raise NotImplementedError
+
+    @abstractmethod
+    def stream_text(self, *, system_prompt: str, user_prompt: str) -> Iterator[str]:
         raise NotImplementedError
 
     @abstractmethod
@@ -55,6 +60,34 @@ class OpenAILLMClient(BaseLLMClient):
             self._degraded = True
             self._last_error = "openai generation failed; degraded to fallback"
             return self.fallback.generate_text(system_prompt=system_prompt, user_prompt=user_prompt)
+
+    def stream_text(self, *, system_prompt: str, user_prompt: str) -> Iterator[str]:
+        if self._degraded:
+            yield from self.fallback.stream_text(system_prompt=system_prompt, user_prompt=user_prompt)
+            return
+        try:
+            stream = self.client.chat.completions.create(
+                model=self.settings.openai_model,
+                temperature=0.2,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                stream=True,
+                timeout=self.settings.request_timeout,
+            )
+            emitted = False
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    emitted = True
+                    yield delta
+            if not emitted:
+                raise RuntimeError("empty stream response")
+        except Exception:
+            self._degraded = True
+            self._last_error = "openai streaming failed; degraded to fallback"
+            yield from self.fallback.stream_text(system_prompt=system_prompt, user_prompt=user_prompt)
 
     def _complete(self, *, system_prompt: str, user_prompt: str, json_mode: bool) -> str:
         response = self.client.chat.completions.create(
@@ -137,13 +170,37 @@ class MiniMaxLLMClient(BaseLLMClient):
             self._last_error = f"{type(exc).__name__}: {exc}"
             return self.fallback.generate_text(system_prompt=system_prompt, user_prompt=user_prompt)
 
+    def stream_text(self, *, system_prompt: str, user_prompt: str) -> Iterator[str]:
+        if self._degraded:
+            yield from self.fallback.stream_text(system_prompt=system_prompt, user_prompt=user_prompt)
+            return
+        prompt = self._build_prompt(user_prompt=user_prompt, json_mode=False)
+        try:
+            with self.client.messages.stream(
+                model=self.settings.minimax_model,
+                max_tokens=1_500,
+                system=system_prompt,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": prompt}],
+                    }
+                ],
+                timeout=self.settings.request_timeout,
+            ) as stream:
+                emitted = False
+                for chunk in stream.text_stream:
+                    if chunk:
+                        emitted = True
+                        yield chunk
+                if not emitted:
+                    raise RuntimeError("empty stream response")
+        except Exception as exc:
+            self._degraded = True
+            self._last_error = f"{type(exc).__name__}: {exc}"
+            yield from self.fallback.stream_text(system_prompt=system_prompt, user_prompt=user_prompt)
+
     def _complete(self, *, system_prompt: str, user_prompt: str, json_mode: bool) -> str:
-        prompt = user_prompt
-        if json_mode:
-            prompt = (
-                f"{user_prompt}\n\n"
-                "Return valid JSON only. Do not wrap the result in markdown fences."
-            )
         response = self.client.messages.create(
             model=self.settings.minimax_model,
             max_tokens=1_500,
@@ -151,12 +208,7 @@ class MiniMaxLLMClient(BaseLLMClient):
             messages=[
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": prompt,
-                        }
-                    ],
+                    "content": [{"type": "text", "text": self._build_prompt(user_prompt=user_prompt, json_mode=json_mode)}],
                 }
             ],
             timeout=self.settings.request_timeout,
@@ -167,6 +219,14 @@ class MiniMaxLLMClient(BaseLLMClient):
             if text:
                 parts.append(text)
         return "".join(parts).strip()
+
+    def _build_prompt(self, *, user_prompt: str, json_mode: bool) -> str:
+        if not json_mode:
+            return user_prompt
+        return (
+            f"{user_prompt}\n\n"
+            "Return valid JSON only. Do not wrap the result in markdown fences."
+        )
 
     def health(self) -> dict[str, str]:
         return {
@@ -200,7 +260,7 @@ class MiniMaxLLMClient(BaseLLMClient):
 
 
 class FallbackLLMClient(BaseLLMClient):
-    """Deterministic fallback used when no OpenAI API key is configured."""
+    """Deterministic fallback used when no provider is available."""
 
     def generate_json(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         request_payload = self._extract_json_payload(user_prompt)
@@ -267,8 +327,11 @@ class FallbackLLMClient(BaseLLMClient):
         return {}
 
     def generate_text(self, *, system_prompt: str, user_prompt: str) -> str:
+        return "".join(self.stream_text(system_prompt=system_prompt, user_prompt=user_prompt))
+
+    def stream_text(self, *, system_prompt: str, user_prompt: str) -> Iterator[str]:
         goal = self._extract_goal(user_prompt)
-        return (
+        text = (
             "# AI Agent MVP Delivery\n\n"
             "## Goal\n"
             f"{goal}\n\n"
@@ -277,6 +340,9 @@ class FallbackLLMClient(BaseLLMClient):
             "- Added tool usage, web research support, and long-term memory.\n"
             "- Preserved deterministic fallback behavior for local development.\n"
         )
+        chunk_size = 48
+        for index in range(0, len(text), chunk_size):
+            yield text[index : index + chunk_size]
 
     def _extract_goal(self, payload: str) -> str:
         json_payload = self._extract_json_payload(payload)
