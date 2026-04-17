@@ -141,8 +141,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Already implemented. renderMarkdownBlocks for full Markdown; paragraph_citations for paragraph-level anchors; copy answer button; build passes."
     },
     {
       "id": "US-010",
