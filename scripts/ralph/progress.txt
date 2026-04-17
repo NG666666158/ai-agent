@@ -95,3 +95,10 @@ Started: 2026-04-17
   - frontend: cmd /c npm run build
   - backend: python -m unittest tests.unit.test_execution_nodes
 ---
+
+## 2026-04-18 02:15 - US-R1
+- 已删除死代码 `build_execution_nodes` v1 函数，仅保留 `build_execution_nodes_v2` 作为唯一执行节点构建器。TaskResponse.from_record 继续使用 v2，测试也全部覆盖 v2。
+- 修改文件：src/orion_agent/core/models.py（删除 ~220 行 v1 函数）
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow ✓ (15 tests)；npm run build --prefix frontend ✓
+- 学到：v1 函数从未被任何生产代码调用，仅在 tests/unit/test_execution_nodes.py 中存在 v2 的单元测试。删除死代码是 US-R1 的核心交付物。
+---
