@@ -1,81 +1,81 @@
 {
   "project": "Orion Agent",
   "branchName": "ralph/orion-agent-enterprise-evolution",
-  "description": "Align the Orion Agent runtime with claw-code style platform boundaries while preserving the current web console experience.",
+  "description": "Advance Orion Agent from runtime refactor into platform-layer hardening with standardized tool metadata, citation mapping, session storage boundaries, and governed memory/profile flows.",
   "userStories": [
     {
-      "id": "US-R1",
-      "title": "Unify Execution Node Builder",
-      "description": "As a developer, I want a single execution node builder so that runtime, frontend, and tests rely on one source of truth.",
+      "id": "US-R6",
+      "title": "Harden ToolPool Metadata and Permission Pipeline",
+      "description": "As a platform maintainer, I want tool metadata to drive permission, timeout, retry, and frontend display behavior so future tool expansion does not rely on scattered hard-coded rules.",
       "acceptanceCriteria": [
-        "Only one primary execution node builder remains in the backend",
-        "TaskResponse continues to expose execution_nodes",
-        "Redundant dual-track execution node logic is removed or fully folded",
-        "Add or update unit tests for the single execution node path",
-        "Run the relevant backend unittest modules"
+        "Tool definitions expose stable metadata for category, display labels, permission level, timeout, and retry behavior",
+        "The main runtime path reads tool metadata from one source of truth rather than scattered literals",
+        "Frontend-facing tool details remain compatible or are improved without breaking current pages",
+        "Add or update backend tests for tool metadata and permission behavior",
+        "Run the matching backend unittest modules and frontend build if touched"
       ],
       "priority": 1,
       "passes": true,
       "notes": ""
     },
     {
-      "id": "US-R2",
-      "title": "Extract ContextBuilder",
-      "description": "As a developer, I want context assembly extracted from AgentService so that context layers, budgets, and traceability can evolve independently.",
+      "id": "US-R7",
+      "title": "Standardize Backend CitationMap",
+      "description": "As a product maintainer, I want paragraph-to-source mapping to be standardized in the backend so the frontend can render anchors and source hints without guessing relationships.",
       "acceptanceCriteria": [
-        "Create a dedicated ContextBuilder module",
-        "runtime_agent delegates context layer construction to the builder",
-        "Existing context_layers output remains compatible",
-        "Add focused unit coverage for the new builder behavior",
-        "Run the relevant backend unittest modules"
+        "Backend citation mapping covers paragraph anchors, source labels, and source kinds from one typed structure",
+        "Current memory, profile, session message, and source summary citations remain supported",
+        "Frontend consumers can keep using a stable citation payload with less UI-side inference",
+        "Add or update tests for citation source registration and paragraph mapping",
+        "Run matching backend unittest modules and frontend build if touched"
       ],
       "priority": 2,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
-      "id": "US-R3",
-      "title": "Introduce ExecutionRegistry",
-      "description": "As a developer, I want key execution stages to be described by a registry so that execution metadata, recovery, and UI rendering share the same definitions.",
+      "id": "US-R8",
+      "title": "Extract SessionStore Boundary",
+      "description": "As a maintainer, I want session creation, summary refresh, branch continuation, and trace lookup to live behind a session store boundary so conversation governance is easier to evolve safely.",
       "acceptanceCriteria": [
-        "Add an ExecutionRegistry module or equivalent registry abstraction",
-        "Critical execution stages expose metadata such as kind, title, and display-facing labels",
-        "The main runtime path uses the registry for at least the core execution stages",
-        "Frontend compatibility remains intact",
-        "Run backend tests and frontend build if types are touched"
+        "Introduce a dedicated session store or equivalent boundary for session persistence and retrieval flows",
+        "runtime_agent delegates key session operations through the new boundary",
+        "Existing session APIs remain compatible",
+        "Add focused unit coverage for session branching, summary refresh, and task linkage behavior",
+        "Run the relevant backend unittest modules"
       ],
       "priority": 3,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
-      "id": "US-R4",
-      "title": "Extract RecoveryPolicy",
-      "description": "As a maintainer, I want failure recovery decisions extracted from the orchestrator so that retries, skip-step recovery, and replan behavior are easier to evolve safely.",
+      "id": "US-R9",
+      "title": "Layer Context Contracts and Trace Metadata",
+      "description": "As a maintainer, I want context layers to expose explicit source and budget trace metadata so debugging, recovery, and frontend explanation can rely on structured contracts instead of implicit strings.",
       "acceptanceCriteria": [
-        "Add a dedicated recovery policy module",
-        "Existing retry, skip failed step, and replan behaviors remain compatible",
-        "Add focused recovery policy tests",
-        "Do not break resume and recovery APIs",
+        "Context-related structures expose clearer source and budget metadata beyond plain assembled text",
+        "Context build notes and trace fields remain compatible with the current runtime and UI",
+        "At least the main runtime and execution-node path consume the structured context trace fields",
+        "Add or update backend tests for context trace and budget output",
         "Run the relevant backend unittest modules"
       ],
       "priority": 4,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
-      "id": "US-R5",
-      "title": "Prepare ToolPool and Citation Interfaces",
-      "description": "As a platform maintainer, I want tool metadata and citation map interfaces standardized so that future permission and plugin work has a clean extension surface.",
+      "id": "US-R10",
+      "title": "Strengthen Memory and Profile Governance",
+      "description": "As a product maintainer, I want memory and profile records to expose stronger governance signals so recall quality, editing, traceability, and future multi-user isolation can evolve on a cleaner foundation.",
       "acceptanceCriteria": [
-        "Tool metadata includes category, permission, and display-facing fields or a clear interface placeholder",
-        "Backend citation map has a documented and typed extension surface",
-        "Current task and answer flows do not regress",
-        "Update docs to describe the extension points",
-        "Run matching backend tests and frontend build if needed"
+        "Memory and profile models expose clearer governance-oriented fields or boundaries needed by current flows",
+        "Recall and profile injection behavior do not regress",
+        "Editing and traceability surfaces remain intact or improve",
+        "Add or update backend tests for governed memory/profile behaviors",
+        "Run the matching backend unittest modules and frontend build if touched"
       ],
       "priority": 5,
-      "passes": true,
+      "passes": false,
       "notes": ""
     }
   ]

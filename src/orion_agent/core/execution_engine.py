@@ -18,6 +18,7 @@ from orion_agent.core.models import (
     TaskStatus,
     ToolCallStatus,
     ToolInvocation,
+    ToolPermission,
 )
 from orion_agent.core.prompts import PromptLibrary
 from orion_agent.core.state_machine import transition_task
@@ -72,7 +73,7 @@ class ExecutionEngine:
                 on_task_update(task)
 
             if on_progress is not None:
-                on_progress("step_started", f"正在执行步骤：{self._localize_step_name(step.name)}", step.description)
+                on_progress("step_started", f"正在执行步骤：{self._localize_step_name(step.name, step.tool_name)}", step.description)
 
             if step.name == "Parse Task":
                 if on_progress is not None:
@@ -142,7 +143,7 @@ class ExecutionEngine:
             if on_progress is not None:
                 on_progress(
                     "step_completed",
-                    f"步骤已完成：{self._localize_step_name(step.name)}",
+                    f"步骤已完成：{self._localize_step_name(step.name, step.tool_name)}",
                     self._progress_detail_for_step(step),
                 )
 
@@ -197,7 +198,15 @@ class ExecutionEngine:
             on_task_update(task)
         return task
 
-    def _localize_step_name(self, step_name: str) -> str:
+    def _localize_step_name(self, step_name: str, tool_name: str | None = None) -> str:
+        # Prefer tool metadata over hardcoded mapping (single source of truth)
+        if tool_name:
+            try:
+                definition = self.tool_registry.get_definition(tool_name)
+                if definition.display_label:
+                    return definition.display_label
+            except ValueError:
+                pass
         mapping = {
             "Parse Task": "解析任务",
             "Recall Memory": "召回记忆",
@@ -416,25 +425,83 @@ class ExecutionEngine:
 
     def _call_tool(self, task: TaskRecord, step_id: str, tool_name: str, **kwargs: Any) -> str:
         definition = self.tool_registry.get_definition(tool_name)
-        attempts_allowed = 1 + max(
-            definition.max_retries,
-            self.settings.tool_max_retries if definition.max_retries > 0 else 0,
-        )
-        last_error = ""
-        last_category = FailureCategory.INTERNAL_ERROR
 
-        for attempt in range(1, attempts_allowed + 1):
-            try:
-                output = self.tool_registry.invoke(tool_name, **kwargs)
+        # Enforce permission level: RESTRICTED tools require prior approval
+        if definition.permission_level == ToolPermission.RESTRICTED:
+            # Check if this tool already has a final (non-pending) approval
+            existing_final_approval = any(
+                approval.tool_name == tool_name and approval.approved is not None
+                for approval in task.pending_approvals
+            )
+            if not existing_final_approval:
+                from orion_agent.core.models import PendingApproval
+
                 task.tool_invocations.append(
                     ToolInvocation(
                         step_id=step_id,
                         tool_name=tool_name,
-                        status=ToolCallStatus.SUCCESS,
+                        status=ToolCallStatus.ERROR,
                         input_payload=kwargs,
-                        output_preview=output[:240],
-                        attempt_count=attempt,
+                        error=f"Tool {tool_name} requires user approval.",
+                        failure_category=FailureCategory.PERMISSION_DENIED,
+                        category=definition.category,
+                        display_name=definition.display_name,
+                        display_label=definition.display_label,
+                        permission_level=definition.permission_level,
+                        timeout_ms=definition.effective_timeout_ms,
                     )
+                )
+                task.pending_approvals.append(
+                    PendingApproval(
+                        tool_name=tool_name,
+                        operation=definition.display_name or tool_name,
+                        message=f"操作「{definition.display_name or tool_name}」需要确认。",
+                        risk_note=definition.description,
+                        permission_level=ToolPermission.RESTRICTED,
+                        input_payload=kwargs,
+                    )
+                )
+                raise ToolExecutionError(
+                    f"Tool {tool_name} requires user approval.",
+                    category=FailureCategory.PERMISSION_DENIED,
+                    retryable=False,
+                )
+
+        attempts_allowed = 1 + max(
+            definition.max_retries,
+            self.settings.tool_max_retries if definition.max_retries > 0 else 0,
+        )
+        timeout_ms = definition.effective_timeout_ms
+        last_error = ""
+        last_category = FailureCategory.INTERNAL_ERROR
+
+        def _make_invocation(
+            status: ToolCallStatus,
+            error: str | None = None,
+            attempt: int = 1,
+            output_preview: str | None = None,
+        ) -> ToolInvocation:
+            return ToolInvocation(
+                step_id=step_id,
+                tool_name=tool_name,
+                status=status,
+                input_payload=kwargs,
+                output_preview=output_preview,
+                error=error,
+                failure_category=last_category,
+                attempt_count=attempt,
+                category=definition.category,
+                display_name=definition.display_name,
+                display_label=definition.display_label,
+                permission_level=definition.permission_level,
+                timeout_ms=timeout_ms,
+            )
+
+        for attempt in range(1, attempts_allowed + 1):
+            try:
+                output = self.tool_registry.invoke(tool_name, timeout_ms=timeout_ms, **kwargs)
+                task.tool_invocations.append(
+                    _make_invocation(ToolCallStatus.SUCCESS, attempt=attempt, output_preview=output[:240])
                 )
                 task.failure_category = FailureCategory.NONE
                 task.failure_message = None
@@ -443,15 +510,7 @@ class ExecutionEngine:
                 last_error = str(exc)
                 last_category = exc.category
                 task.tool_invocations.append(
-                    ToolInvocation(
-                        step_id=step_id,
-                        tool_name=tool_name,
-                        status=ToolCallStatus.ERROR,
-                        input_payload=kwargs,
-                        error=last_error,
-                        failure_category=last_category,
-                        attempt_count=attempt,
-                    )
+                    _make_invocation(ToolCallStatus.ERROR, error=last_error, attempt=attempt)
                 )
                 if exc.retryable and attempt < attempts_allowed:
                     task.retry_count += 1
@@ -461,15 +520,7 @@ class ExecutionEngine:
                 last_error = str(exc)
                 last_category = FailureCategory.INTERNAL_ERROR
                 task.tool_invocations.append(
-                    ToolInvocation(
-                        step_id=step_id,
-                        tool_name=tool_name,
-                        status=ToolCallStatus.ERROR,
-                        input_payload=kwargs,
-                        error=last_error,
-                        failure_category=last_category,
-                        attempt_count=attempt,
-                    )
+                    _make_invocation(ToolCallStatus.ERROR, error=last_error, attempt=attempt)
                 )
                 break
 

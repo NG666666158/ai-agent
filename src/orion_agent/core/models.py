@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from orion_agent.core.execution_registry import EXECUTION_STAGES, get_stage
+from orion_agent.core.execution_registry import get_stage, stage_sort_order
 
 
 def utcnow() -> datetime:
@@ -250,6 +250,11 @@ class ToolDefinition(BaseModel):
     display_name: str | None = None  # Human-facing full name for UI
     display_label: str | None = None  # Short label for UI badges/tags
 
+    @property
+    def effective_timeout_ms(self) -> int:
+        """Return the configured timeout, with a minimum floor of 1_000ms."""
+        return max(self.timeout_ms, 1_000)
+
 
 class ToolInvocation(BaseModel):
     id: str = Field(default_factory=lambda: f"tool_{uuid4().hex[:8]}")
@@ -263,6 +268,12 @@ class ToolInvocation(BaseModel):
     attempt_count: int = 1
     started_at: datetime = Field(default_factory=utcnow)
     completed_at: datetime = Field(default_factory=utcnow)
+    # Tool metadata captured at invocation time for permission, display, and timeout
+    category: str | None = None
+    display_name: str | None = None
+    display_label: str | None = None
+    permission_level: ToolPermission = ToolPermission.SAFE
+    timeout_ms: int = 15_000
 
 
 class PendingApproval(BaseModel):
@@ -497,7 +508,7 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
                 title=_title("query_rewrite"),
                 short_label=_short("query_rewrite"),
                 status="done" if record.status != TaskStatus.CREATED else "doing",
-                summary="系统已将原始问题整理为结构化任务目标。",
+                summary="系统已将原始问题整理成结构化任务目标。",
                 detail=record.parsed_goal.goal,
                 started_at=record.created_at,
                 artifacts=[
@@ -523,13 +534,10 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
                 short_label=_short("prompt_assembly"),
                 status="done",
                 summary="系统已完成会话上下文压缩、用户画像注入和提示词拼接。",
-                detail="用于最终规划、执行与答案生成的上下文已构建完成。",
+                detail="用于最终规划、执行与答案生成的上下文已经构建完成。",
                 started_at=record.created_at,
                 artifacts=[
-                    ExecutionNodeArtifact(
-                        label="会话摘要",
-                        content=record.context_layers.session_summary or "暂无",
-                    ),
+                    ExecutionNodeArtifact(label="会话摘要", content=record.context_layers.session_summary or "暂无"),
                     ExecutionNodeArtifact(
                         label="压缩上下文",
                         content="\n".join(record.context_layers.condensed_recent_messages) or "暂无",
@@ -554,7 +562,7 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
                 short_label=_short("vector_retrieval"),
                 status="done",
                 summary=f"共召回 {len(record.recalled_memories)} 条长期记忆。",
-                detail="系统基于问题语义进行了向量检索和召回打分。",
+                detail="系统基于问题语义执行了向量检索并返回命中分数。",
                 started_at=record.created_at,
                 artifacts=[
                     ExecutionNodeArtifact(
@@ -564,7 +572,7 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
                             for segment in [
                                 f"类型={memory.memory_type}",
                                 f"分数={memory.retrieval_score:.2f}" if memory.retrieval_score is not None else None,
-                                f"原因={memory.retrieval_reason}" if memory.retrieval_reason else None,
+                                f"命中原因={memory.retrieval_reason}" if memory.retrieval_reason else None,
                                 f"通道={', '.join(memory.retrieval_channels)}" if memory.retrieval_channels else None,
                                 memory.summary,
                             ]
@@ -589,7 +597,7 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
                 short_label=_short("multi_recall"),
                 status="done",
                 summary="系统已整合长期记忆、用户画像、近期会话和外部材料。",
-                detail="多路来源被统一注入到任务上下文中，为后续规划和答案生成提供依据。",
+                detail="多路来源已统一注入任务上下文，为后续规划和答案生成提供依据。",
                 started_at=record.created_at,
                 artifacts=[
                     ExecutionNodeArtifact(label="长期记忆", content=str(len(record.recalled_memories))),
@@ -628,11 +636,7 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
                 summary=step.description,
                 detail=step.output,
                 started_at=record.created_at,
-                artifacts=[
-                    ExecutionNodeArtifact(label="绑定工具", content=step.tool_name)
-                ]
-                if step.tool_name
-                else [],
+                artifacts=[ExecutionNodeArtifact(label="绑定工具", content=step.tool_name)] if step.tool_name else [],
             )
         )
 
@@ -717,7 +721,7 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
     nodes.sort(
         key=lambda node: (
             node.started_at or node.ended_at or record.created_at,
-            node.kind,
+            stage_sort_order(node.kind),
             node.title,
         )
     )
@@ -725,3 +729,4 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
 
 
 ChatSessionDetail.model_rebuild()
+

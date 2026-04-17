@@ -1,12 +1,23 @@
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import patch, MagicMock
 
 from orion_agent.core.config import Settings
 from orion_agent.core.execution_engine import ExecutionEngine
 from orion_agent.core.llm_runtime import FallbackLLMClient
 from orion_agent.core.memory import TaskMemoryManager
-from orion_agent.core.models import FailureCategory, ParsedGoal, Step, TaskCreateRequest, TaskRecord, TaskStatus
+from orion_agent.core.models import (
+    FailureCategory,
+    ParsedGoal,
+    Step,
+    TaskCreateRequest,
+    TaskRecord,
+    TaskStatus,
+    ToolCallStatus,
+    ToolDefinition,
+    ToolPermission,
+)
 from orion_agent.core.prompts import PromptLibrary
 from orion_agent.core.tools import ToolExecutionError, ToolRegistry
 
@@ -65,6 +76,132 @@ class ExecutionEngineToolCallTests(unittest.TestCase):
         self.assertEqual(task.retry_count, 2)
         self.assertEqual(len(task.tool_invocations), 3)
         self.assertTrue(all(item.failure_category == FailureCategory.TOOL_TIMEOUT for item in task.tool_invocations))
+
+
+class ExecutionEngineToolMetadataTests(unittest.TestCase):
+    """Tests for US-R6: tool metadata is captured in ToolInvocation."""
+
+    def setUp(self) -> None:
+        self.settings = Settings(allow_online_search=False, tool_max_retries=2)
+        self.engine = ExecutionEngine(
+            tool_registry=ToolRegistry(self.settings),
+            memory_manager=TaskMemoryManager(),
+            llm_client=FallbackLLMClient(),
+            prompts=PromptLibrary(),
+            settings=self.settings,
+        )
+
+    def test_tool_invocation_captures_category_display_name_label(self) -> None:
+        """SUCCESS invocation captures category, display_name, display_label from tool definition."""
+        task = TaskRecord(title="metadata capture")
+        self.engine._call_tool(task=task, step_id="step_1", tool_name="web_search", query="test")
+        invocation = task.tool_invocations[-1]
+        self.assertEqual(invocation.category, "search")
+        self.assertEqual(invocation.display_name, "网络搜索")
+        self.assertEqual(invocation.display_label, "搜索")
+
+    def test_tool_invocation_captures_permission_level(self) -> None:
+        """Invocation records the permission level from tool definition."""
+        task = TaskRecord(title="permission capture")
+        # read_local_file has CONFIRM permission
+        self.engine._call_tool(task=task, step_id="step_1", tool_name="read_local_file", path="missing.txt")
+        invocation = task.tool_invocations[-1]
+        self.assertEqual(invocation.permission_level, ToolPermission.CONFIRM)
+
+    def test_tool_invocation_captures_timeout_ms(self) -> None:
+        """Invocation records the effective timeout from tool definition."""
+        task = TaskRecord(title="timeout capture")
+        # read_local_file has default timeout_ms=15_000 in ToolDefinition
+        self.engine._call_tool(task=task, step_id="step_1", tool_name="read_local_file", path="missing.txt")
+        invocation = task.tool_invocations[-1]
+        self.assertEqual(invocation.timeout_ms, 15_000)
+
+    def test_restricted_tool_blocks_without_approval(self) -> None:
+        """RESTRICTED tool raises ToolExecutionError and creates pending approval."""
+        # Inject a RESTRICTED tool into the registry for this test
+        original_def = self.engine.tool_registry._definitions["web_search"]
+        restricted_def = ToolDefinition(
+            name="web_search",
+            description="restricted search",
+            input_schema={"query": "string"},
+            output_schema={"results": "string"},
+            permission_level=ToolPermission.RESTRICTED,
+            max_retries=0,
+            category="search",
+            display_name="受限搜索",
+            display_label="受限搜索",
+        )
+        self.engine.tool_registry._definitions["web_search"] = restricted_def
+
+        try:
+            task = TaskRecord(title="restricted test")
+            with self.assertRaises(ToolExecutionError) as ctx:
+                self.engine._call_tool(task=task, step_id="step_1", tool_name="web_search", query="test")
+            self.assertEqual(ctx.exception.category, FailureCategory.PERMISSION_DENIED)
+            self.assertFalse(ctx.exception.retryable)
+            # Should have created a pending approval
+            self.assertEqual(len(task.pending_approvals), 1)
+            self.assertEqual(task.pending_approvals[0].tool_name, "web_search")
+            # Should have recorded a ToolInvocation with ERROR
+            invocation = task.tool_invocations[-1]
+            self.assertEqual(invocation.status, ToolCallStatus.ERROR)
+            self.assertEqual(invocation.failure_category, FailureCategory.PERMISSION_DENIED)
+            self.assertEqual(invocation.category, "search")
+            self.assertEqual(invocation.permission_level, ToolPermission.RESTRICTED)
+        finally:
+            self.engine.tool_registry._definitions["web_search"] = original_def
+
+    def test_restricted_tool_proceeds_with_existing_approval(self) -> None:
+        """RESTRICTED tool succeeds when prior approval is already granted."""
+        original_def = self.engine.tool_registry._definitions["web_search"]
+        restricted_def = ToolDefinition(
+            name="web_search",
+            description="restricted search",
+            input_schema={"query": "string"},
+            output_schema={"results": "string"},
+            permission_level=ToolPermission.RESTRICTED,
+            max_retries=0,
+            category="search",
+            display_name="受限搜索",
+            display_label="受限搜索",
+        )
+        self.engine.tool_registry._definitions["web_search"] = restricted_def
+
+        try:
+            task = TaskRecord(title="already approved")
+            # Pre-approve the tool
+            from orion_agent.core.models import PendingApproval
+            task.pending_approvals.append(
+                PendingApproval(
+                    tool_name="web_search",
+                    operation="受限搜索",
+                    message="approved",
+                    risk_note="test",
+                    permission_level=ToolPermission.RESTRICTED,
+                    approved=True,
+                )
+            )
+            # Should succeed without raising
+            output = self.engine._call_tool(task=task, step_id="step_1", tool_name="web_search", query="test")
+            self.assertEqual(task.tool_invocations[-1].status, ToolCallStatus.SUCCESS)
+        finally:
+            self.engine.tool_registry._definitions["web_search"] = original_def
+
+    def test_timeout_ms_passed_to_registry_invoke(self) -> None:
+        """Effective timeout_ms from tool definition is forwarded to registry invoke."""
+        task = TaskRecord(title="timeout forward")
+        captured_timeout: int | None = None
+
+        def capture_invoke(tool_name: str, timeout_ms: int | None = None, **kwargs: Any) -> str:
+            nonlocal captured_timeout
+            captured_timeout = timeout_ms
+            return self.engine.tool_registry.invoke(tool_name, timeout_ms=timeout_ms, **kwargs)
+
+        with patch.object(self.engine.tool_registry, "invoke", side_effect=capture_invoke):
+            self.engine._call_tool(task=task, step_id="step_1", tool_name="summarize_text", text="hello world")
+
+        self.assertIsNotNone(captured_timeout)
+        self.assertEqual(captured_timeout, 15_000)  # default effective_timeout_ms
 
     def test_resolve_source_material_from_source_text(self) -> None:
         task = TaskRecord(title="source text")

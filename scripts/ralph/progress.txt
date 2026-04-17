@@ -141,3 +141,10 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_citation_map tests.unit.test_tool_registry tests.unit.test_execution_nodes tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_recovery_policy tests.unit.test_profile_and_memory ✓ (61 tests)；npm run build --prefix frontend ✓
 - 学到：ToolDefinition 的 category/display_name/display_label 允许 None，前端可据此决定是否显示；CitationMap.add_source() 返回 source_id，用于段落引用映射。
 ---
+
+## 2026-04-18 04:00 - US-R6
+- 已强化 ToolPool 元数据和权限管道：ToolInvocation 新增 category/display_name/display_label/permission_level/timeout_ms 字段；execution_engine._call_tool 传递 timeout_ms 至 registry.invoke 并在所有 ToolInvocation 中捕获元数据；RESTRICTED 工具在无审批记录时创建 PendingApproval 并抛出权限拒绝异常。
+- 修改文件：src/orion_agent/core/models.py（ToolInvocation 新增字段）、src/orion_agent/core/execution_engine.py（_call_tool 更新元数据捕获和权限检查）、tests/unit/test_execution_engine_tool_calls.py（新增 6 个测试）
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_execution_engine_tool_calls tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_context_builder ✓ (46 tests)；npm run build ✓
+- 学到：ToolInvocation 的元数据字段在调用时从 definition 快照捕获，确保前端始终可访问一致的 tool metadata；RESTRICTED 权限需在 pending_approvals 中存在 approved=True 的记录才允许执行。
+---
