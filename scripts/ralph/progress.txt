@@ -7,6 +7,13 @@ Started: 2026-04-17
 - 前端质量回归当前以 `frontend` 目录下 `cmd /c npm run build` 为最小校验。
 - 后端模型与执行链路相关改动，优先补 `tests/unit/` 下的定向 unittest。
 
+## 2026-04-18 01:30 - US-011
+- 多用户隔离与权限基础已实现：在 TaskRecord、ChatSession、LongTermMemoryRecord、UserProfileFact 中添加 user_id 字段作为预留字段；ToolPermission 枚举已定义 SAFE/CONFIRM/RESTRICTED 三个权限级别，为高风险工具权限控制奠定基础。过滤接口暂未实现（属于 Scope remain foundation-only）。
+- 相关文件：src/orion_agent/core/models.py
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow ✓ (15 tests)；npm run build --prefix frontend ✓
+- 学到：多用户隔离的第一步是预留 user_id 字段，而不是直接实现完整的权限系统；权限级别（ToolPermission）在工具定义时就确定，而不是运行时动态判断。
+---
+
 ## 2026-04-18 01:20 - US-010
 - 中文文档 Rewrite 已实现：README.md 和 docs/ 下各文档均已为整洁中文，术语统一，标注完成度、范围和下一阶段优先级。product-roadmap.md 提供路线图，continuous-development-checklist.md 提供开发检查清单，next-development-checklist.md 提供下一轮开发计划。
 - 质量检查：docs 已就绪，无需额外质量检查

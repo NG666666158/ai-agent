@@ -44,3 +44,26 @@
 ## Local non-container workflow
 
 Run `powershell -ExecutionPolicy Bypass -File deploy/start-local.ps1` to install backend and frontend dependencies, build the frontend, and boot the FastAPI service.
+
+## Minimal Troubleshooting Guide
+
+### LLM Provider Issues
+- If `llm_probe` returns `status=error`, check `error_type` and `error` fields.
+- Common causes: missing API key, incorrect base URL, network connectivity.
+- MiniMax endpoint: `https://api.minimaxi.com/anthropic`
+
+### Vector Store Issues
+- If vector search returns no results, verify Qdrant is running: `http://qdrant:6333`.
+- Check collection exists: `orion_agent_memories`.
+- Verify dimensions match (1536 for text-embedding-3).
+
+### Tool Execution Failures
+- Tool timeout: check network connectivity and remote service availability.
+- Tool unavailable: verify tool definition is registered in the tool registry.
+- Use `/api/system/health` to get a combined status of LLM, Embedding, Vector, and Search.
+
+### Restart Procedure
+1. Stop the service.
+2. Clear checkpoint state if tasks are stuck in REPLANNING.
+3. Restart via `deploy/start-local.ps1` or container stack.
+
