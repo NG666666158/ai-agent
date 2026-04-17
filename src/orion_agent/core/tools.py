@@ -96,11 +96,70 @@ class ToolRegistry:
             raise ValueError(f"Unknown tool: {tool_name}")
         return definition
 
-    def invoke(self, tool_name: str, **kwargs: Any) -> str:
+    def invoke(self, tool_name: str, timeout_ms: int | None = None, **kwargs: Any) -> str:
         handler = self._handlers.get(tool_name)
         if handler is None:
             raise ValueError(f"Unknown tool: {tool_name}")
+        if tool_name == "web_search" and timeout_ms is not None:
+            return self._web_search_with_timeout(kwargs.get("query", ""), timeout_ms)
         return handler(**kwargs)
+
+    def _web_search_with_timeout(self, query: str, timeout_ms: int) -> str:
+        if not self.settings.allow_online_search:
+            return json.dumps([], ensure_ascii=False)
+        try:
+            response = httpx.get(
+                self.settings.web_search_endpoint,
+                params={
+                    "q": query,
+                    "format": "json",
+                    "no_html": "1",
+                    "skip_disambig": "1",
+                },
+                timeout=timeout_ms / 1000,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.TimeoutException as exc:
+            raise ToolExecutionError(
+                "Web search request timed out.",
+                category=FailureCategory.TOOL_TIMEOUT,
+                retryable=True,
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ToolExecutionError(
+                "Web search request failed.",
+                category=FailureCategory.NETWORK_ERROR,
+                retryable=True,
+            ) from exc
+        except Exception as exc:
+            raise ToolExecutionError(
+                "Web search tool is unavailable.",
+                category=FailureCategory.TOOL_UNAVAILABLE,
+                retryable=False,
+            ) from exc
+
+        results: list[dict[str, str]] = []
+        seen_urls: set[str] = set()
+        max_results = self.settings.web_search_max_results
+        for item in payload.get("RelatedTopics", [])[: max_results + 2]:
+            if "Text" in item and "FirstURL" in item:
+                if item["FirstURL"] not in seen_urls:
+                    results.append({"title": item["Text"], "url": item["FirstURL"]})
+                    seen_urls.add(item["FirstURL"])
+            elif "Topics" in item:
+                for nested in item["Topics"][: max_results + 2]:
+                    if "Text" in nested and "FirstURL" in nested and nested["FirstURL"] not in seen_urls:
+                        results.append({"title": nested["Text"], "url": nested["FirstURL"]})
+                        seen_urls.add(nested["FirstURL"])
+            if len(results) >= max_results:
+                break
+
+        abstract = payload.get("AbstractText")
+        abstract_url = payload.get("AbstractURL", "")
+        if abstract and abstract_url not in seen_urls:
+            results.insert(0, {"title": abstract, "url": abstract_url})
+        return json.dumps(results[:max_results], ensure_ascii=False)
 
     def _summarize_text(self, text: str) -> str:
         cleaned = " ".join(text.split())
