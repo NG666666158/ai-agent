@@ -117,3 +117,11 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_context_builder tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_profile_and_memory ✓ (23 tests)；npm run build --prefix frontend ✓
 - 学到：ContextBuilder 依赖 profile_manager 和 repository 接口，build() 返回的 ContextLayer 结构完全向后兼容；session_id 为空时，_build_session_context 回退到纯 profile facts 模式。
 ---
+
+## 2026-04-18 03:00 - US-R3
+- 已抽取 ExecutionRegistry（src/orion_agent/core/execution_registry.py），包含 EXECUTION_STAGES 映射和 get_stage/stage_title/stage_short_label 辅助函数；ExecutionNode 新增 short_label 字段，由 registry 驱动；build_execution_nodes_v2 通过 _title()/_short() 辅助函数从 registry 获取标题和短标签。
+- 新增文件：src/orion_agent/core/execution_registry.py、tests/unit/test_execution_registry.py
+- 修改文件：src/orion_agent/core/models.py（导入 registry，ExecutionNode 新增 short_label）
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_execution_registry tests.unit.test_execution_nodes tests.unit.test_context_builder ✓ (17 tests)；npm run build --prefix frontend ✓
+- 学到：execution_nodes 的 kind 是 registry 的主键，title 和 short_label 均通过 registry 取得而非硬编码，实现了执行阶段元数据的单一真相来源。
+---

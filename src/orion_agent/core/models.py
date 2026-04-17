@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from orion_agent.core.execution_registry import EXECUTION_STAGES, get_stage
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -388,6 +390,7 @@ class ExecutionNode(BaseModel):
     id: str = Field(default_factory=lambda: f"node_{uuid4().hex[:8]}")
     kind: str
     title: str
+    short_label: str | None = None
     status: str
     summary: str
     detail: str | None = None
@@ -475,11 +478,20 @@ class TaskResponse(BaseModel):
 def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
     nodes: list[ExecutionNode] = []
 
+    def _title(kind: str) -> str:
+        stage = get_stage(kind)
+        return stage.title if stage else kind
+
+    def _short(kind: str) -> str | None:
+        stage = get_stage(kind)
+        return stage.short_label if stage else None
+
     if record.parsed_goal is not None:
         nodes.append(
             ExecutionNode(
                 kind="query_rewrite",
-                title="Query 改写与任务标准化",
+                title=_title("query_rewrite"),
+                short_label=_short("query_rewrite"),
                 status="done" if record.status != TaskStatus.CREATED else "doing",
                 summary="系统已将原始问题整理为结构化任务目标。",
                 detail=record.parsed_goal.goal,
@@ -503,7 +515,8 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
         nodes.append(
             ExecutionNode(
                 kind="prompt_assembly",
-                title="上下文分层与 Prompt 拼接",
+                title=_title("prompt_assembly"),
+                short_label=_short("prompt_assembly"),
                 status="done",
                 summary="系统已完成会话上下文压缩、用户画像注入和提示词拼接。",
                 detail="用于最终规划、执行与答案生成的上下文已构建完成。",
@@ -533,7 +546,8 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
         nodes.append(
             ExecutionNode(
                 kind="vector_retrieval",
-                title="向量检索与语义召回",
+                title=_title("vector_retrieval"),
+                short_label=_short("vector_retrieval"),
                 status="done",
                 summary=f"共召回 {len(record.recalled_memories)} 条长期记忆。",
                 detail="系统基于问题语义进行了向量检索和召回打分。",
@@ -567,7 +581,8 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
         nodes.append(
             ExecutionNode(
                 kind="multi_recall",
-                title="多路召回与来源整合",
+                title=_title("multi_recall"),
+                short_label=_short("multi_recall"),
                 status="done",
                 summary="系统已整合长期记忆、用户画像、近期会话和外部材料。",
                 detail="多路来源被统一注入到任务上下文中，为后续规划和答案生成提供依据。",
@@ -590,6 +605,7 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
                 id=f"progress-node-{progress.id}",
                 kind="progress",
                 title=progress.message,
+                short_label=_short("progress"),
                 status="done" if record.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED} else "doing",
                 summary=progress.stage,
                 detail=progress.detail,
@@ -603,6 +619,7 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
                 id=f"step-node-{step.id}",
                 kind="step",
                 title=step.name,
+                short_label=_short("step"),
                 status=step.status.value.lower(),
                 summary=step.description,
                 detail=step.output,
@@ -624,6 +641,7 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
                 id=f"tool-node-{tool.id}",
                 kind="tool",
                 title=tool.tool_name,
+                short_label=_short("tool"),
                 status="done" if tool.status == ToolCallStatus.SUCCESS else "error",
                 summary=f"尝试次数 {tool.attempt_count}，失败类型 {tool.failure_category.value}",
                 detail=tool.error or tool.output_preview,
@@ -643,6 +661,7 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
                 id=f"replan-node-{event.id}",
                 kind="recovery",
                 title=event.summary,
+                short_label=_short("recovery"),
                 status="done",
                 summary=f"恢复策略：{event.recovery_strategy}",
                 detail=event.detail,
@@ -663,7 +682,8 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
         nodes.append(
             ExecutionNode(
                 kind="answer_generation",
-                title="最终回答生成",
+                title=_title("answer_generation"),
+                short_label=_short("answer_generation"),
                 status=answer_status,
                 summary="系统正在结合上下文、检索结果和工具输出生成最终回答。",
                 detail=(record.live_result or record.result or "")[:1200] or None,
@@ -681,7 +701,8 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
         nodes.append(
             ExecutionNode(
                 kind="review",
-                title="结果复核",
+                title=_title("review"),
+                short_label=_short("review"),
                 status="done" if record.review.passed else "error",
                 summary=record.review.summary,
                 detail="\n".join(record.review.checklist) or None,
