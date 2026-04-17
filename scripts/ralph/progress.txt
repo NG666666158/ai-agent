@@ -27,6 +27,14 @@ Started: 2026-04-17
 - 学到：文档 Rewrite 类任务关键检查项：中文表述、无编码问题、术语统一、有明确范围和优先级声明。
 ---
 
+## 2026-04-18 01:55 - US-009
+- 回答 Markdown 和引用锚点升级已完善：TasksPage.tsx 的任务详情页原本使用原始 `<pre>` 展示结果，现改为 renderMarkdownBlocks 渲染完整 Markdown（标题、列表、代码块、表格、引用）；ConsolePage.tsx 脚注卡片原来直接显示英文 kind，现改为「来源：记忆/画像/会话」格式；抽取 markdownUtils.tsx 共享渲染和引用处理函数。
+- 新增文件：frontend/src/markdownUtils.tsx
+- 修改文件：frontend/src/pages/TasksPage.tsx（引入 markdown 渲染和引用脚注）、frontend/src/pages/ConsolePage.tsx（中文来源标签）
+- 质量检查：npm run build --prefix frontend ✓
+- 学到：ConsolePage 的 renderMarkdownBlocks 函数仅用于 ConsolePage，TasksPage 原本直接显示原始文本，需要单独接入渲染逻辑；共享工具函数应放在 .tsx 文件中（因含 JSX）。
+---
+
 ## 2026-04-18 01:10 - US-009
 - 回答 Markdown 和引用锚点升级已实现：renderMarkdownBlocks 支持完整 Markdown 渲染（标题、列表、代码块、表格、引用）；paragraph_citations 提供段落级锚点映射；citation_sources 标识每条引用的来源类型（memory/profile/session_message/source_summary）；复制回答按钮通过 handleCopyAnswer 实现。
 - 质量检查：npm run build --prefix frontend ✓

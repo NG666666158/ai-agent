@@ -14,6 +14,13 @@ import {
   type TaskTrace,
   type ToolInvocation,
 } from "../api";
+import {
+  buildCitationFootnoteNumbers,
+  buildCitationSourceMap,
+  buildSourceParagraphMap,
+  renderFootnoteSection,
+  renderMarkdownBlocks,
+} from "../markdownUtils";
 
 function toChineseStatus(status: string) {
   const mapping: Record<string, string> = {
@@ -320,6 +327,13 @@ export function TasksPage() {
     downloadFile(`${selectedTask.id}.json`, JSON.stringify(selectedTask, null, 2), "application/json;charset=utf-8");
   };
 
+  const citationSourceMap = buildCitationSourceMap(selectedTask);
+  const footnoteNumbers = buildCitationFootnoteNumbers(selectedTask?.paragraph_citations ?? []);
+  const sourceParagraphMap = buildSourceParagraphMap(selectedTask?.paragraph_citations ?? []);
+  const renderedMarkdown = selectedTask?.result
+    ? renderMarkdownBlocks(selectedTask.result, selectedTask.paragraph_citations, footnoteNumbers)
+    : null;
+
   return (
     <section className="grid">
       <section className="panel">
@@ -462,7 +476,12 @@ export function TasksPage() {
 
             <section className="detail-section">
               <h3>最终结果</h3>
-              <pre className="result">{selectedTask.result ?? "暂无结果输出"}</pre>
+              <div className="markdown-result">
+                {renderedMarkdown ?? <p className="meta">暂无结果输出</p>}
+              </div>
+              {selectedTask.paragraph_citations.length
+                ? renderFootnoteSection(citationSourceMap, footnoteNumbers, sourceParagraphMap)
+                : null}
             </section>
 
             <section className="detail-section">

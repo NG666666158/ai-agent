@@ -14,6 +14,7 @@ import {
   type SessionDetail,
   type Task,
 } from "../api";
+import { toChineseSourceKind } from "../markdownUtils";
 
 function toChineseStatus(status: string) {
   const mapping: Record<string, string> = {
@@ -908,7 +909,7 @@ export function ConsolePage() {
                                 <strong>
                                   [{footnoteNumber}] {source.label}
                                 </strong>
-                                <span className="tool-badge">{source.kind}</span>
+                                <span className="tool-badge">来源：{toChineseSourceKind(source.kind)}</span>
                               </div>
                               <div className="meta">{source.detail}</div>
                               {paragraphIndexes.length ? (
