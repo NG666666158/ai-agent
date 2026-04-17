@@ -7,6 +7,13 @@ Started: 2026-04-17
 - 前端质量回归当前以 `frontend` 目录下 `cmd /c npm run build` 为最小校验。
 - 后端模型与执行链路相关改动，优先补 `tests/unit/` 下的定向 unittest。
 
+## 2026-04-18 01:40 - US-012
+- 生产部署和可观测基线已实现：docs/production.md 区分本地、容器和生产部署路径；/system/health 端点报告 LLM、Embedding、Vector、Search 四个核心组件状态；Prometheus metrics 在 /api/system/metrics；在 production.md 中补充最小故障排查指南。
+- 相关文件：docs/production.md、src/orion_agent/api/routes/system.py
+- 质量检查：docs 已更新，无需额外测试
+- 学到：系统健康状态通过 runtime_summary() 统一汇聚各组件健康信息，而非各组件独立上报；Prometheus metrics 通过 exposed_metrics 路由暴露。
+---
+
 ## 2026-04-18 01:30 - US-011
 - 多用户隔离与权限基础已实现：在 TaskRecord、ChatSession、LongTermMemoryRecord、UserProfileFact 中添加 user_id 字段作为预留字段；ToolPermission 枚举已定义 SAFE/CONFIRM/RESTRICTED 三个权限级别，为高风险工具权限控制奠定基础。过滤接口暂未实现（属于 Scope remain foundation-only）。
 - 相关文件：src/orion_agent/core/models.py
