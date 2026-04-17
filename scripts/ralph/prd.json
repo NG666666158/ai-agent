@@ -156,8 +156,8 @@
         "Markdown preview is readable"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Already implemented. README and docs already clean Chinese; consistent terminology; docs state completion level, scope, next priorities."
     },
     {
       "id": "US-011",

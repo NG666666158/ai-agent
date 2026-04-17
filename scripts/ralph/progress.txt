@@ -7,6 +7,12 @@ Started: 2026-04-17
 - 前端质量回归当前以 `frontend` 目录下 `cmd /c npm run build` 为最小校验。
 - 后端模型与执行链路相关改动，优先补 `tests/unit/` 下的定向 unittest。
 
+## 2026-04-18 01:20 - US-010
+- 中文文档 Rewrite 已实现：README.md 和 docs/ 下各文档均已为整洁中文，术语统一，标注完成度、范围和下一阶段优先级。product-roadmap.md 提供路线图，continuous-development-checklist.md 提供开发检查清单，next-development-checklist.md 提供下一轮开发计划。
+- 质量检查：docs 已就绪，无需额外质量检查
+- 学到：文档 Rewrite 类任务关键检查项：中文表述、无编码问题、术语统一、有明确范围和优先级声明。
+---
+
 ## 2026-04-18 01:10 - US-009
 - 回答 Markdown 和引用锚点升级已实现：renderMarkdownBlocks 支持完整 Markdown 渲染（标题、列表、代码块、表格、引用）；paragraph_citations 提供段落级锚点映射；citation_sources 标识每条引用的来源类型（memory/profile/session_message/source_summary）；复制回答按钮通过 handleCopyAnswer 实现。
 - 质量检查：npm run build --prefix frontend ✓

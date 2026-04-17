@@ -159,6 +159,7 @@ class UserProfileMergeRequest(BaseModel):
 
 class UserProfileFact(BaseModel):
     id: str = Field(default_factory=lambda: f"profile_{uuid4().hex[:8]}")
+    user_id: str | None = None
     category: str
     label: str
     value: str
@@ -217,6 +218,7 @@ class MemoryVersion(BaseModel):
 class LongTermMemoryRecord(BaseModel):
     id: str = Field(default_factory=lambda: f"ltm_{uuid4().hex[:8]}")
     scope: str = "default"
+    user_id: str | None = None
     memory_type: str = "task_result"
     topic: str
     summary: str
@@ -298,6 +300,7 @@ class ChatMessage(BaseModel):
 class ChatSession(BaseModel):
     id: str = Field(default_factory=lambda: f"session_{uuid4().hex[:8]}")
     title: str
+    user_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
     last_task_id: str | None = None
@@ -403,6 +406,7 @@ class ChatSessionDetail(BaseModel):
 class TaskRecord(BaseModel):
     id: str = Field(default_factory=lambda: f"task_{uuid4().hex[:10]}")
     title: str
+    user_id: str | None = None
     session_id: str | None = None
     status: TaskStatus = TaskStatus.CREATED
     created_at: datetime = Field(default_factory=utcnow)
