@@ -1,194 +1,82 @@
 {
   "project": "Orion Agent",
   "branchName": "ralph/orion-agent-enterprise-evolution",
-  "description": "Evolve Orion Agent from a feature-rich prototype into a more stable, traceable, recoverable, and automation-friendly agent workspace.",
+  "description": "Align the Orion Agent runtime with claw-code style platform boundaries while preserving the current web console experience.",
   "userStories": [
     {
-      "id": "US-001",
-      "title": "Unify execution node model",
-      "description": "As a developer, I want the backend to expose one execution node model so that the frontend and tests rely on a single source of truth.",
+      "id": "US-R1",
+      "title": "Unify Execution Node Builder",
+      "description": "As a developer, I want a single execution node builder so that runtime, frontend, and tests rely on one source of truth.",
       "acceptanceCriteria": [
-        "TaskResponse outputs a unified execution_nodes field for parse, retrieval, planning, execution, recovery, review, and answer generation",
-        "Each execution node contains title, status, summary, timestamps, and expandable artifacts",
-        "Legacy fields remain compatible while the primary UI uses execution_nodes",
-        "Add unit tests for execution node building",
-        "Typecheck passes"
+        "Only one primary execution node builder remains in the backend",
+        "TaskResponse continues to expose execution_nodes",
+        "Redundant dual-track execution node logic is removed or fully folded",
+        "Add or update unit tests for the single execution node path",
+        "Run the relevant backend unittest modules"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "Completed manually before Ralph automation handoff."
+      "notes": ""
     },
     {
-      "id": "US-002",
-      "title": "Refine execution stages and recovery traces",
-      "description": "As a user, I want to see fine-grained stage updates and recovery details so that long-running tasks are understandable.",
+      "id": "US-R2",
+      "title": "Extract ContextBuilder",
+      "description": "As a developer, I want context assembly extracted from AgentService so that context layers, budgets, and traceability can evolve independently.",
       "acceptanceCriteria": [
-        "Execution stages include input parsing, constraint normalization, memory retrieval, multi-source recall, prompt assembly, planning, step execution, answer generation, and review",
-        "Failure categories are distinguishable in API responses",
-        "Recovery events include strategy, attempt count, and resume point",
-        "Frontend can render recovery traces directly",
-        "Typecheck passes"
+        "Create a dedicated ContextBuilder module",
+        "runtime_agent delegates context layer construction to the builder",
+        "Existing context_layers output remains compatible",
+        "Add focused unit coverage for the new builder behavior",
+        "Run the relevant backend unittest modules"
       ],
       "priority": 2,
       "passes": true,
-      "notes": "Completed in this session. Execution stages and recovery traces are implemented."
+      "notes": ""
     },
     {
-      "id": "US-003",
-      "title": "Implement recoverable replanning flow",
-      "description": "As a system maintainer, I want partial recovery flows so that failed runs do not always restart from the beginning.",
+      "id": "US-R3",
+      "title": "Introduce ExecutionRegistry",
+      "description": "As a developer, I want key execution stages to be described by a registry so that execution metadata, recovery, and UI rendering share the same definitions.",
       "acceptanceCriteria": [
-        "Support continue-after-skip strategy for failed steps",
-        "Support rebuild-tail-plan strategy for remaining steps",
-        "Checkpoint and replan history persist recovery details",
-        "Add recovery flow tests for success and failure paths",
-        "Tests pass",
-        "Typecheck passes"
+        "Add an ExecutionRegistry module or equivalent registry abstraction",
+        "Critical execution stages expose metadata such as kind, title, and display-facing labels",
+        "The main runtime path uses the registry for at least the core execution stages",
+        "Frontend compatibility remains intact",
+        "Run backend tests and frontend build if types are touched"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "Completed. Recovery strategies (skip, rebuild-tail, replan-from-checkpoint) are implemented and tested with RecoveryFlowTests."
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "US-004",
-      "title": "Enhance memory metadata and minimal hybrid retrieval",
-      "description": "As a developer, I want richer memory metadata and a minimal hybrid retrieval flow so that answers have more stable grounding.",
+      "id": "US-R4",
+      "title": "Extract RecoveryPolicy",
+      "description": "As a maintainer, I want failure recovery decisions extracted from the orchestrator so that retries, skip-step recovery, and replan behavior are easier to evolve safely.",
       "acceptanceCriteria": [
-        "Long-term memory records include memory_type",
-        "Retrieval returns retrieval_score, retrieval_reason, and retrieval_channels",
-        "Hybrid retrieval combines vector recall with keyword or rule-based assist",
-        "A minimal rerank step produces final ordering",
-        "Semantic memory retrieval tests pass",
-        "Tests pass"
+        "Add a dedicated recovery policy module",
+        "Existing retry, skip failed step, and replan behaviors remain compatible",
+        "Add focused recovery policy tests",
+        "Do not break resume and recovery APIs",
+        "Run the relevant backend unittest modules"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Already implemented. LongTermMemoryRecord has memory_type; recall() returns retrieval_score, retrieval_reason, retrieval_channels; hybrid uses vector+lexical with rerank."
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "US-005",
-      "title": "Inject cross-session memory and user profile",
-      "description": "As a user, I want my preferences and profile facts to carry into new sessions so that I do not need to repeat myself.",
+      "id": "US-R5",
+      "title": "Prepare ToolPool and Citation Interfaces",
+      "description": "As a platform maintainer, I want tool metadata and citation map interfaces standardized so that future permission and plugin work has a clean extension surface.",
       "acceptanceCriteria": [
-        "Preference extractor stores stable profile facts from messages",
-        "New sessions inject profile and preference summaries automatically",
-        "Responses can indicate which content came from profile, memory, or history",
-        "Cross-session profile retrieval tests pass",
-        "Tests pass"
+        "Tool metadata includes category, permission, and display-facing fields or a clear interface placeholder",
+        "Backend citation map has a documented and typed extension surface",
+        "Current task and answer flows do not regress",
+        "Update docs to describe the extension points",
+        "Run matching backend tests and frontend build if needed"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Already implemented. extract_facts/remember/snapshot chain; session profile_snapshot; citation_sources kind=profile."
-    },
-    {
-      "id": "US-006",
-      "title": "Support profile editing and conflict merge",
-      "description": "As an operator, I want to edit profile facts and merge conflicts so that long-term user knowledge remains clean.",
-      "acceptanceCriteria": [
-        "Profile facts can be edited in UI and API",
-        "Conflicting profile facts can be merged into a target fact",
-        "Merge relationship is preserved for traceability",
-        "Profile page shows status and source information",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
-      ],
-      "priority": 6,
-      "passes": true,
-      "notes": "Already implemented. ProfilePage.tsx for editing/merging; superseded_by chain preserves traceability; source_session_id/task_id shown."
-    },
-    {
-      "id": "US-007",
-      "title": "Refactor console into standard agent chat layout",
-      "description": "As an end user, I want a familiar agent console layout so that chat, history, and thought process are easy to follow.",
-      "acceptanceCriteria": [
-        "Left panel shows collapsible session history",
-        "Right panel shows current conversation, answer, and composer",
-        "Thought process is collapsed under the final answer by default",
-        "Chinese labels are consistent across the console",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
-      ],
-      "priority": 7,
-      "passes": true,
-      "notes": "Already implemented. ConsolePage has sidebar+chat layout; SessionsPage provides history management; Chinese labels consistent; build passes."
-    },
-    {
-      "id": "US-008",
-      "title": "Upgrade frontend execution visualization",
-      "description": "As a user, I want the full agent execution flow visualized so that I can inspect what happened without reading raw logs.",
-      "acceptanceCriteria": [
-        "Thought panel renders a timeline or node flow instead of raw log text",
-        "Each node shows summary and expandable artifacts",
-        "Nodes cover query rewrite, vector retrieval, multi-source recall, prompt assembly, tool calls, recovery, and answer generation",
-        "Running nodes have distinct visual states",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
-      ],
-      "priority": 8,
-      "passes": true,
-      "notes": "Already implemented. ExecutionNodeTimeline renders node flow; all node kinds covered; running state via CSS class; build passes."
-    },
-    {
-      "id": "US-009",
-      "title": "Upgrade answer markdown and citation anchors",
-      "description": "As a user, I want properly rendered Markdown answers with paragraph-level source anchors so that I can trust and navigate citations.",
-      "acceptanceCriteria": [
-        "Answer area renders headings, lists, code blocks, tables, and quotes correctly",
-        "Paragraph-level anchors or footnotes link back to concrete sources",
-        "Each footnote identifies memory, profile, or session origin",
-        "Copy answer action is available",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
-      ],
-      "priority": 9,
-      "passes": true,
-      "notes": "Already implemented. renderMarkdownBlocks for full Markdown; paragraph_citations for paragraph-level anchors; copy answer button; build passes."
-    },
-    {
-      "id": "US-010",
-      "title": "Rewrite Chinese docs and unify project understanding",
-      "description": "As a maintainer, I want clean Chinese documentation so that future contributors understand the project quickly.",
-      "acceptanceCriteria": [
-        "README is rewritten as clean Chinese documentation",
-        "Architecture, roadmap, checklist, and test report template use consistent terminology",
-        "Encoding issues and outdated content are removed",
-        "Docs clearly state completion level, scope, and next priorities",
-        "Markdown preview is readable"
-      ],
-      "priority": 10,
-      "passes": true,
-      "notes": "Already implemented. README and docs already clean Chinese; consistent terminology; docs state completion level, scope, next priorities."
-    },
-    {
-      "id": "US-011",
-      "title": "Lay groundwork for multi-user isolation and permissions",
-      "description": "As a platform admin, I want user ownership and permission groundwork so that the project can evolve toward multi-user usage safely.",
-      "acceptanceCriteria": [
-        "Core records reserve user ownership fields",
-        "High-risk tools define permission levels",
-        "Tasks, sessions, memories, and profiles can be filtered by user ownership",
-        "Scope remains foundation-only without full auth rollout",
-        "Tests pass",
-        "Typecheck passes"
-      ],
-      "priority": 11,
-      "passes": true,
-      "notes": "Completed this session. Added user_id to TaskRecord, ChatSession, LongTermMemoryRecord, UserProfileFact; ToolPermission enum already in place."
-    },
-    {
-      "id": "US-012",
-      "title": "Add production deployment and observability baseline",
-      "description": "As an operator, I want stable deployment and observability guidance so that the prototype can be operated more reliably.",
-      "acceptanceCriteria": [
-        "Docs distinguish local, container, and production deployment paths",
-        "System health clearly reports LLM, Embedding, Vector, and Search states",
-        "Prometheus metrics guidance remains documented",
-        "A minimal troubleshooting guide is included",
-        "Markdown preview is readable"
-      ],
-      "priority": 12,
-      "passes": true,
-      "notes": "Completed this session. docs/production.md with deployment paths, health endpoint with LLM/Embedding/Vector/Search, Prometheus metrics, troubleshooting guide."
+      "passes": false,
+      "notes": ""
     }
   ]
 }
