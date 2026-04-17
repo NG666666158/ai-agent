@@ -7,6 +7,12 @@ Started: 2026-04-17
 - 前端质量回归当前以 `frontend` 目录下 `cmd /c npm run build` 为最小校验。
 - 后端模型与执行链路相关改动，优先补 `tests/unit/` 下的定向 unittest。
 
+## 2026-04-18 00:40 - US-006
+- 个人画像编辑与冲突合并已实现：ProfilePage.tsx 提供完整的画像编辑界面（标签、值、置信度、说明、状态）和合并功能；superseded_by 链保留合并关系可追溯；每条画像显示来源会话和任务信息。ProfilePage 为已存在的未追踪文件。
+- 质量检查：npm run build --prefix frontend ✓
+- 学到：合并时 source.superseded_by = target.id，同时将 source.status = MERGED，保留完整的溯源链。
+---
+
 ## 2026-04-18 00:30 - US-005
 - 跨会话记忆和用户画像注入已实现：extract_facts() 从用户消息中提取画像并通过 remember() 持久化；新会话通过 profile_manager.snapshot() 注入画像摘要到 context_layers；响应来源通过 citation_sources 中的 kind=profile 和 source_record_id 标识来自画像。
 - 质量检查：15 unittest ✓；npm run build --prefix frontend ✓

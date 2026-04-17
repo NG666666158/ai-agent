@@ -93,8 +93,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Already implemented. ProfilePage.tsx for editing/merging; superseded_by chain preserves traceability; source_session_id/task_id shown."
     },
     {
       "id": "US-007",
