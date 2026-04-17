@@ -8,6 +8,7 @@ from pathlib import Path
 
 from orion_agent.core.config import Settings, get_settings
 from orion_agent.core.context_builder import ContextBuilder
+from orion_agent.core.recovery_policy import RecoveryPolicy
 from orion_agent.core.embedding_runtime import build_embedder
 from orion_agent.core.evaluation import EvaluationResult, TaskEvaluator
 from orion_agent.core.execution_engine import ExecutionEngine
@@ -99,6 +100,7 @@ class AgentService:
         )
         self.reflector = Reflector(self.llm_client, self.prompts)
         self.evaluator = TaskEvaluator()
+        self.recovery_policy = RecoveryPolicy(self.settings)
         self._active_runs: dict[str, threading.Thread] = {}
         self._runs_lock = threading.RLock()
 
@@ -642,20 +644,7 @@ class AgentService:
             return task
 
     def _classify_failure_resolution(self, task: TaskRecord, category: FailureCategory) -> FailureResolution:
-        failed_step = self._find_failed_step(task)
-        if category == FailureCategory.INTERNAL_ERROR:
-            return FailureResolution.RETRY_CURRENT_STEP
-        if category == FailureCategory.PERMISSION_DENIED:
-            return FailureResolution.REQUIRE_USER_ACTION
-        if category == FailureCategory.REVIEW_FAILED:
-            return FailureResolution.REPLAN_FROM_CHECKPOINT
-        if failed_step and self._can_skip_failed_step(failed_step, category):
-            return FailureResolution.SKIP_FAILED_STEP
-        if failed_step and self._can_replan_remaining_steps(task, failed_step):
-            return FailureResolution.REPLAN_REMAINING_STEPS
-        if category in {FailureCategory.TOOL_TIMEOUT, FailureCategory.NETWORK_ERROR, FailureCategory.TOOL_UNAVAILABLE}:
-            return FailureResolution.REPLAN_FROM_CHECKPOINT
-        return FailureResolution.FAIL_FAST
+        return self.recovery_policy.classify_failure_resolution(task, category)
 
     def _record_failure_checkpoint(self, task: TaskRecord, resolution: FailureResolution) -> None:
         task.checkpoint.failure_count += 1

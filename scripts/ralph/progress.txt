@@ -125,3 +125,11 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_execution_registry tests.unit.test_execution_nodes tests.unit.test_context_builder ✓ (17 tests)；npm run build --prefix frontend ✓
 - 学到：execution_nodes 的 kind 是 registry 的主键，title 和 short_label 均通过 registry 取得而非硬编码，实现了执行阶段元数据的单一真相来源。
 ---
+
+## 2026-04-18 03:20 - US-R4
+- 已抽取 RecoveryPolicy（src/orion_agent/core/recovery_policy.py），包含 classify_failure_resolution、can_skip_failed_step、can_replan_remaining_steps 等决策方法；runtime_agent._classify_failure_resolution 委托给 recovery_policy.classify_failure_resolution，原有 _can_skip_failed_step/_can_replan_remaining_steps 方法保留以维持兼容。
+- 新增文件：src/orion_agent/core/recovery_policy.py、tests/unit/test_recovery_policy.py
+- 修改文件：src/orion_agent/core/runtime_agent.py（导入并使用 RecoveryPolicy）
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_recovery_policy tests.unit.test_recovery_flow tests.unit.test_execution_nodes tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_state_machine tests.unit.test_profile_and_memory ✓ (44 tests)；npm run build --prefix frontend ✓
+- 学到：RecoveryPolicy 通过 settings 获取配置，can_skip_failed_step 只对 web_search + timeout/unavailable 返回 True，can_replan_remaining_steps 要求有已完成的前置步骤。
+---
