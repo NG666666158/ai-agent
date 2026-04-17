@@ -7,6 +7,12 @@ Started: 2026-04-17
 - 前端质量回归当前以 `frontend` 目录下 `cmd /c npm run build` 为最小校验。
 - 后端模型与执行链路相关改动，优先补 `tests/unit/` 下的定向 unittest。
 
+## 2026-04-18 01:00 - US-008
+- 前端执行可视化升级已实现：控制台思考面板通过 ExecutionNodeTimeline 组件渲染节点流，替代原始日志文本；每个节点显示摘要和可展开的 artifacts；节点类型覆盖 query_rewrite、vector_retrieval、multi_recall、prompt_assembly、tool、recovery、answer_generation；进行中节点通过 execution-node-doing CSS 类展示不同视觉状态。
+- 质量检查：npm run build --prefix frontend ✓
+- 学到：ExecutionNode 的 kind 决定了 toChineseNodeKind 的翻译和节点的视觉样式，而非独立组件。
+---
+
 ## 2026-04-18 00:50 - US-007
 - 控制台重构为标准 Agent 聊天布局已实现：ConsolePage 左侧边栏展示可折叠会话历史，右侧面板展示当前会话、回答和编辑器，思考过程默认折叠在最终回答下方；SessionsPage 提供独立的会话历史管理页面。全程使用中文标签。
 - 质量检查：npm run build --prefix frontend ✓
