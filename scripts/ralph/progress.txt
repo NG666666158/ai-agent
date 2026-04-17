@@ -7,6 +7,12 @@ Started: 2026-04-17
 - 前端质量回归当前以 `frontend` 目录下 `cmd /c npm run build` 为最小校验。
 - 后端模型与执行链路相关改动，优先补 `tests/unit/` 下的定向 unittest。
 
+## 2026-04-18 00:50 - US-007
+- 控制台重构为标准 Agent 聊天布局已实现：ConsolePage 左侧边栏展示可折叠会话历史，右侧面板展示当前会话、回答和编辑器，思考过程默认折叠在最终回答下方；SessionsPage 提供独立的会话历史管理页面。全程使用中文标签。
+- 质量检查：npm run build --prefix frontend ✓
+- 学到：thought-panel 的 open/collapsed 状态由 thoughtOpen state 控制，默认 false（折叠）。
+---
+
 ## 2026-04-18 00:40 - US-006
 - 个人画像编辑与冲突合并已实现：ProfilePage.tsx 提供完整的画像编辑界面（标签、值、置信度、说明、状态）和合并功能；superseded_by 链保留合并关系可追溯；每条画像显示来源会话和任务信息。ProfilePage 为已存在的未追踪文件。
 - 质量检查：npm run build --prefix frontend ✓
