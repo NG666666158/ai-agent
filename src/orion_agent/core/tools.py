@@ -39,6 +39,9 @@ class ToolRegistry:
                 description="压缩输入文本并返回简要摘要。",
                 input_schema={"text": "string"},
                 output_schema={"summary": "string"},
+                category="text",
+                display_name="文本摘要",
+                display_label="摘要",
             ),
             "read_local_file": ToolDefinition(
                 name="read_local_file",
@@ -47,12 +50,18 @@ class ToolRegistry:
                 output_schema={"content": "string"},
                 permission_level=ToolPermission.CONFIRM,
                 max_retries=0,
+                category="file",
+                display_name="读取本地文件",
+                display_label="读文件",
             ),
             "extract_keywords": ToolDefinition(
                 name="extract_keywords",
                 description="从文本中提取关键词，用于规划和摘要。",
                 input_schema={"text": "string"},
                 output_schema={"keywords": "string"},
+                category="analysis",
+                display_name="关键词提取",
+                display_label="关键词",
             ),
             "web_search": ToolDefinition(
                 name="web_search",
@@ -61,6 +70,9 @@ class ToolRegistry:
                 output_schema={"results": "string"},
                 permission_level=ToolPermission.SAFE,
                 max_retries=2,
+                category="search",
+                display_name="网络搜索",
+                display_label="搜索",
             ),
             "generate_markdown": ToolDefinition(
                 name="generate_markdown",
@@ -69,6 +81,9 @@ class ToolRegistry:
                 output_schema={"markdown": "string"},
                 permission_level=ToolPermission.SAFE,
                 max_retries=0,
+                category="generation",
+                display_name="生成 Markdown",
+                display_label="生成 MD",
             ),
         }
 

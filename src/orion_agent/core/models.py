@@ -245,6 +245,10 @@ class ToolDefinition(BaseModel):
     timeout_ms: int = 15_000
     permission_level: ToolPermission = ToolPermission.SAFE
     max_retries: int = 0
+    # Extension surface for platform / permission / UI integration
+    category: str | None = None  # e.g. "search", "file", "generation", "analysis"
+    display_name: str | None = None  # Human-facing full name for UI
+    display_label: str | None = None  # Short label for UI badges/tags
 
 
 class ToolInvocation(BaseModel):

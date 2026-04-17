@@ -133,3 +133,11 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_recovery_policy tests.unit.test_recovery_flow tests.unit.test_execution_nodes tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_state_machine tests.unit.test_profile_and_memory ✓ (44 tests)；npm run build --prefix frontend ✓
 - 学到：RecoveryPolicy 通过 settings 获取配置，can_skip_failed_step 只对 web_search + timeout/unavailable 返回 True，can_replan_remaining_steps 要求有已完成的前置步骤。
 ---
+
+## 2026-04-18 03:40 - US-R5
+- 已标准化工具元数据和 citation 接口：ToolDefinition 新增 category/display_name/display_label 字段；ToolRegistry 中所有工具已填充这些字段；新建 citation_map.py（CitationMap 类、CITATION_KINDS、citation_kind_label）；更新 tools.py 填充所有工具的 category/display_name/display_label；新建 docs/toolpool-and-citation-extension-points.md 描述扩展点。
+- 新增文件：src/orion_agent/core/citation_map.py、tests/unit/test_citation_map.py、docs/toolpool-and-citation-extension-points.md
+- 修改文件：src/orion_agent/core/models.py（ToolDefinition 新增字段）、src/orion_agent/core/tools.py（工具定义填充扩展字段）
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_citation_map tests.unit.test_tool_registry tests.unit.test_execution_nodes tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_recovery_policy tests.unit.test_profile_and_memory ✓ (61 tests)；npm run build --prefix frontend ✓
+- 学到：ToolDefinition 的 category/display_name/display_label 允许 None，前端可据此决定是否显示；CitationMap.add_source() 返回 source_id，用于段落引用映射。
+---
