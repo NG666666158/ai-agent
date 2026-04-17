@@ -62,8 +62,8 @@
         "Tests pass"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Already implemented. LongTermMemoryRecord has memory_type; recall() returns retrieval_score, retrieval_reason, retrieval_channels; hybrid uses vector+lexical with rerank."
     },
     {
       "id": "US-005",
