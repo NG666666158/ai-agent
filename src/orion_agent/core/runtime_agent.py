@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from orion_agent.core.config import Settings, get_settings
+from orion_agent.core.context_builder import ContextBuilder
 from orion_agent.core.embedding_runtime import build_embedder
 from orion_agent.core.evaluation import EvaluationResult, TaskEvaluator
 from orion_agent.core.execution_engine import ExecutionEngine
@@ -86,6 +87,7 @@ class AgentService:
         self.memory_manager = TaskMemoryManager()
         self.long_term_memory = LongTermMemoryManager(self.repository, self.embedder, self.vector_store)
         self.profile_manager = UserProfileManager(self.repository)
+        self.context_builder = ContextBuilder(self.profile_manager, self.repository)
         self.tool_registry = ToolRegistry(self.settings)
         self.planner = Planner(self.llm_client, self.prompts)
         self.executor = ExecutionEngine(
@@ -1172,45 +1174,10 @@ class AgentService:
             self.profile_manager.remember(fact)
 
     def _build_context_layers(self, request: TaskCreateRequest) -> ContextLayer:
-        session_context = self._build_session_context(request.session_id)
-        budget = dict(self.CONTEXT_BUDGET)
-        source_summary = self._trim_text(request.source_text or "", budget["source_summary"])
-        recent_messages = [self._trim_text(item, 240) for item in list(session_context["recent_messages"])[: budget["recent_messages"]]]
-        condensed_recent_messages = [self._trim_text(item, 120) for item in recent_messages[: budget["condensed_recent_messages"]]]
-        profile_facts = [self._trim_text(item, 120) for item in list(session_context["profile_facts"])[: budget["profile_facts"]]]
-        build_notes = [
-            f"session_summary<{budget['session_summary']} chars",
-            f"recent_messages<={budget['recent_messages']}",
-            f"profile_facts<={budget['profile_facts']}",
-            f"source_summary<{budget['source_summary']} chars",
-        ]
-        return ContextLayer(
-            system_instructions="Follow the task goal, satisfy constraints, and keep the output structured.",
-            session_summary=self._trim_text(str(session_context["session_summary"]), budget["session_summary"]),
-            recent_messages=recent_messages,
-            condensed_recent_messages=condensed_recent_messages,
-            profile_facts=profile_facts,
-            working_memory=[
-                f"goal={request.goal}",
-                f"expected_output={request.expected_output}",
-                f"memory_scope={request.memory_scope}",
-            ][: budget["working_memory"]],
-            source_summary=source_summary,
-            layer_budget=budget,
-            build_notes=build_notes,
-            version=int(time.time()),
-        )
+        return self.context_builder.build(request)
 
     def _build_session_context(self, session_id: str | None) -> dict[str, object]:
-        if not session_id:
-            return {"session_summary": "", "recent_messages": [], "profile_facts": self.profile_manager.snapshot(limit=6)}
-        session = self.repository.get_session(session_id)
-        if session is None:
-            return {"session_summary": "", "recent_messages": [], "profile_facts": self.profile_manager.snapshot(limit=6)}
-        messages = self.repository.list_session_messages(session_id, limit=12)
-        recent_messages = [f"{item.role.value}: {item.content[:240]}" for item in messages[-6:]]
-        profile_facts = session.profile_snapshot or self.profile_manager.snapshot(limit=6)
-        return {"session_summary": session.context_summary.strip(), "recent_messages": recent_messages, "profile_facts": profile_facts}
+        return self.context_builder._build_session_context(session_id)
 
     def _render_context_layers(self, context_layers: ContextLayer) -> str:
         parts: list[str] = []

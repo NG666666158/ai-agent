@@ -102,3 +102,18 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow ✓ (15 tests)；npm run build --prefix frontend ✓
 - 学到：v1 函数从未被任何生产代码调用，仅在 tests/unit/test_execution_nodes.py 中存在 v2 的单元测试。删除死代码是 US-R1 的核心交付物。
 ---
+
+## 2026-04-18 02:15 - US-R1
+- 统一执行节点构建器已完成：build_execution_nodes_v2 是后端唯一的执行节点构建函数；runtime_agent 通过 _append_progress 维护 progress_updates（遗留兼容），但不直接构建 execution_nodes；TaskResponse.from_record 自动注入统一的 execution_nodes。
+- 相关文件：src/orion_agent/core/models.py（build_execution_nodes_v2）、tests/unit/test_execution_nodes.py
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow ✓ (15 tests)；npm run build --prefix frontend ✓
+- 学到：execution_nodes 由 progress_updates/steps/tool_invocations 等原始字段统一转换得到，而非双轨并行构建；遗留字段（progress_updates 等）通过 build_execution_nodes_v2 折叠为统一节点流。
+---
+
+## 2026-04-18 02:30 - US-R2
+- 已抽取 ContextBuilder 模块（src/orion_agent/core/context_builder.py），包含 CONTEXT_BUDGET 常量、build() 和 _build_session_context() 方法；runtime_agent 委托 context_builder 构建 context_layers，原有方法作为代理保留以维持向后兼容。
+- 新增文件：src/orion_agent/core/context_builder.py、tests/unit/test_context_builder.py
+- 修改文件：src/orion_agent/core/runtime_agent.py（导入并使用 ContextBuilder）
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_context_builder tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_profile_and_memory ✓ (23 tests)；npm run build --prefix frontend ✓
+- 学到：ContextBuilder 依赖 profile_manager 和 repository 接口，build() 返回的 ContextLayer 结构完全向后兼容；session_id 为空时，_build_session_context 回退到纯 profile facts 模式。
+---
