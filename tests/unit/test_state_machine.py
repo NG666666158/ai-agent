@@ -22,6 +22,16 @@ class StateMachineTests(unittest.TestCase):
         with self.assertRaises(InvalidTaskTransition):
             transition_task(task, TaskStatus.RUNNING)
 
+    def test_cancelled_task_can_resume_to_running(self) -> None:
+        task = TaskRecord(title="state cancelled", status=TaskStatus.CANCELLED)
+        transition_task(task, TaskStatus.RUNNING)
+        self.assertEqual(task.status, TaskStatus.RUNNING)
+
+    def test_failed_task_can_resume_to_running(self) -> None:
+        task = TaskRecord(title="state failed", status=TaskStatus.FAILED)
+        transition_task(task, TaskStatus.RUNNING)
+        self.assertEqual(task.status, TaskStatus.RUNNING)
+
     def test_running_waiting_tool_roundtrip_is_valid(self) -> None:
         task = TaskRecord(title="state tool wait", status=TaskStatus.RUNNING)
         transition_task(task, TaskStatus.WAITING_TOOL)
@@ -33,6 +43,13 @@ class StateMachineTests(unittest.TestCase):
         task = TaskRecord(title="state replanning", status=TaskStatus.RUNNING)
         transition_task(task, TaskStatus.REPLANNING)
         self.assertEqual(task.status, TaskStatus.REPLANNING)
+        transition_task(task, TaskStatus.RUNNING)
+        self.assertEqual(task.status, TaskStatus.RUNNING)
+
+    def test_planned_waiting_approval_roundtrip_is_valid(self) -> None:
+        task = TaskRecord(title="state approval", status=TaskStatus.PLANNED)
+        transition_task(task, TaskStatus.WAITING_APPROVAL)
+        self.assertEqual(task.status, TaskStatus.WAITING_APPROVAL)
         transition_task(task, TaskStatus.RUNNING)
         self.assertEqual(task.status, TaskStatus.RUNNING)
 

@@ -1,0 +1,195 @@
+{
+  "project": "Orion Agent",
+  "branchName": "ralph/orion-agent-enterprise-evolution",
+  "description": "将当前 Orion Agent 从功能较多的原型整理为结构更稳、执行可恢复、RAG 可解释、前端可视化更完整的可追溯 Agent 工作台。",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "统一执行主链路数据模型",
+      "description": "As a developer, I want the backend to expose one execution node model so that the frontend and tests rely on a single source of truth.",
+      "acceptanceCriteria": [
+        "TaskResponse outputs a unified execution_nodes field for parse, retrieval, planning, execution, recovery, review, and answer generation",
+        "Each execution node contains title, status, summary, timestamps, and expandable artifacts",
+        "Legacy fields remain compatible while the primary UI uses execution_nodes",
+        "Add unit tests for execution node building",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "细化执行阶段与恢复痕迹",
+      "description": "As a user, I want to see fine-grained stage updates and recovery details so that long-running tasks are understandable.",
+      "acceptanceCriteria": [
+        "Execution stages include input parsing, constraint normalization, memory retrieval, multi-source recall, prompt assembly, planning, step execution, answer generation, and review",
+        "Failure categories are distinguishable in API responses",
+        "Recovery events include strategy, attempt count, and resume point",
+        "Frontend can render recovery traces directly",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "实现可恢复的重规划流",
+      "description": "As a system maintainer, I want partial recovery flows so that failed runs do not always restart from the beginning.",
+      "acceptanceCriteria": [
+        "Support continue-after-skip strategy for failed steps",
+        "Support rebuild-tail-plan strategy for remaining steps",
+        "Checkpoint and replan history persist recovery details",
+        "Add recovery flow tests for success and failure paths",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "增强记忆元数据与最小混合召回",
+      "description": "As a developer, I want richer memory metadata and a minimal hybrid retrieval flow so that answers have more stable grounding.",
+      "acceptanceCriteria": [
+        "Long-term memory records include memory_type",
+        "Retrieval returns retrieval_score, retrieval_reason, and retrieval_channels",
+        "Hybrid retrieval combines vector recall with keyword or rule-based assist",
+        "A minimal rerank step produces final ordering",
+        "Semantic memory retrieval tests pass",
+        "Tests pass"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "补齐跨会话记忆与用户画像注入",
+      "description": "As a user, I want my preferences and profile facts to carry into new sessions so that I do not need to repeat myself.",
+      "acceptanceCriteria": [
+        "Preference extractor stores stable profile facts from messages",
+        "New sessions inject profile and preference summaries automatically",
+        "Responses can indicate which content came from profile, memory, or history",
+        "Cross-session profile retrieval tests pass",
+        "Tests pass"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "支持画像编辑与冲突合并",
+      "description": "As an operator, I want to edit profile facts and merge conflicts so that long-term user knowledge remains clean.",
+      "acceptanceCriteria": [
+        "Profile facts can be edited in UI and API",
+        "Conflicting profile facts can be merged into a target fact",
+        "Merge relationship is preserved for traceability",
+        "Profile page shows status and source information",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "重构控制台为标准 Agent 对话布局",
+      "description": "As an end user, I want a familiar agent console layout so that chat, history, and thought process are easy to follow.",
+      "acceptanceCriteria": [
+        "Left panel shows collapsible session history",
+        "Right panel shows current conversation, answer, and composer",
+        "Thought process is collapsed under the final answer by default",
+        "Chinese labels are consistent across the console",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "升级前端执行过程可视化",
+      "description": "As a user, I want the full agent execution flow visualized so that I can inspect what happened without reading raw logs.",
+      "acceptanceCriteria": [
+        "Thought panel renders a timeline or node flow instead of raw log text",
+        "Each node shows summary and expandable artifacts",
+        "Nodes cover query rewrite, vector retrieval, multi-source recall, prompt assembly, tool calls, recovery, and answer generation",
+        "Running nodes have distinct visual states",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "升级回答区 Markdown 与来源锚点",
+      "description": "As a user, I want properly rendered Markdown answers with paragraph-level source anchors so that I can trust and navigate citations.",
+      "acceptanceCriteria": [
+        "Answer area renders headings, lists, code blocks, tables, and quotes correctly",
+        "Paragraph-level anchors or footnotes link back to concrete sources",
+        "Each footnote identifies memory, profile, or session origin",
+        "Copy answer action is available",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "清理中文文档并统一项目认知",
+      "description": "As a maintainer, I want clean Chinese documentation so that future contributors understand the project quickly.",
+      "acceptanceCriteria": [
+        "README is rewritten as clean Chinese documentation",
+        "Architecture, roadmap, checklist, and test report template use consistent terminology",
+        "Encoding issues and outdated content are removed",
+        "Docs clearly state completion level, scope, and next priorities",
+        "Markdown preview is readable"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "补强多用户隔离与权限基础",
+      "description": "As a platform admin, I want user ownership and permission groundwork so that the project can evolve toward multi-user usage safely.",
+      "acceptanceCriteria": [
+        "Core records reserve user ownership fields",
+        "High-risk tools define permission levels",
+        "Tasks, sessions, memories, and profiles can be filtered by user ownership",
+        "Scope remains foundation-only without full auth rollout",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "补齐生产部署与运行观测基础",
+      "description": "As an operator, I want stable deployment and observability guidance so that the prototype can be operated more reliably.",
+      "acceptanceCriteria": [
+        "Docs distinguish local, container, and production deployment paths",
+        "System health clearly reports LLM, Embedding, Vector, and Search states",
+        "Prometheus metrics guidance remains documented",
+        "A minimal troubleshooting guide is included",
+        "Markdown preview is readable"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
+

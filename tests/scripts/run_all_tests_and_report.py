@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 REPORT_PATH = ROOT / "tests" / "TEST_REPORT.md"
 TEST_CASES_PATH = ROOT / "tests" / "fixtures" / "test_cases.yaml"
+RAW_OUTPUT_LIMIT = 5000
 
 
 def build_command() -> list[str]:
@@ -91,6 +92,13 @@ def compute_scenario_coverage() -> tuple[int, int, float]:
     return covered, target, rate
 
 
+def trim_output(output: str, limit: int = RAW_OUTPUT_LIMIT) -> str:
+    cleaned = output.strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return f"...\n{cleaned[-limit:]}"
+
+
 def write_report(return_code: int, output: str) -> Path:
     total, failures, errors = parse_stats(output)
     passed = max(total - failures - errors, 0)
@@ -117,21 +125,21 @@ def write_report(return_code: int, output: str) -> Path:
             f"- 错误数：`{errors}`",
             f"- 通过率：`{pass_rate:.2f}%`",
             "",
-            "## 覆盖率统计",
+            "## 覆盖情况统计",
             "",
             f"- 核心测试文件覆盖率：`{covered_files}/{total_files}` (`{file_cov_rate:.2f}%`)",
             f"- 黑盒业务场景覆盖率：`{covered_cases}/{target_cases}` (`{case_cov_rate:.2f}%`)",
             "",
             "## 说明",
             "",
-            "- 这里的“覆盖率”表示当前测试体系对目标测试文件与 20 个业务场景数据集的覆盖情况。",
-            "- 当前脚本尚未集成 `coverage.py`，因此没有输出 Python 行覆盖率。",
+            "- 这里的“覆盖率”表示当前测试体系对目标测试文件以及 20 个业务场景数据集的覆盖情况。",
+            "- 当前脚本尚未集成 `coverage.py`，因此这里没有输出 Python 行覆盖率。",
             "- 如果后续需要行覆盖率，可以在 Docker 镜像中安装 `coverage` 后继续扩展本脚本。",
             "",
             "## 原始测试输出（末尾节选）",
             "",
             "```text",
-            output[-5000:] if len(output) > 5000 else output,
+            trim_output(output),
             "```",
             "",
         ]
@@ -142,10 +150,10 @@ def write_report(return_code: int, output: str) -> Path:
 
 def main() -> int:
     if os.name == "nt":
-        print("Running tests through Docker for Python 3.11 compatibility...")
+        print("通过 Docker 运行测试，以保持 Python 3.11 环境一致性...")
     code, output = run_all_tests()
     report = write_report(code, output)
-    print(f"Report generated: {report}")
+    print(f"测试报告已生成：{report}")
     return code
 
 

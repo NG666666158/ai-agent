@@ -1,7 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 
 from orion_agent.core.config import get_settings
+from orion_agent.core.models import UserProfileMergeRequest, UserProfileUpdateRequest
 from orion_agent.dependencies import agent_service
 
 
@@ -47,6 +48,30 @@ def runtime_health():
 @router.get("/system/llm-probe")
 def llm_probe(perform_request: bool = False):
     return agent_service.probe_llm(perform_request=perform_request)
+
+
+@router.get("/system/profile")
+def user_profile(
+    limit: int = Query(default=50, ge=1, le=200),
+    include_inactive: bool = False,
+):
+    return agent_service.list_user_profile_facts(limit=limit, include_inactive=include_inactive)
+
+
+@router.put("/system/profile/{fact_id}")
+def update_user_profile(fact_id: str, payload: UserProfileUpdateRequest):
+    updated = agent_service.update_user_profile_fact(fact_id, payload)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Profile fact not found")
+    return updated
+
+
+@router.post("/system/profile/{fact_id}/merge")
+def merge_user_profile(fact_id: str, payload: UserProfileMergeRequest):
+    merged = agent_service.merge_user_profile_fact(fact_id, payload)
+    if merged is None:
+        raise HTTPException(status_code=404, detail="Profile fact not found")
+    return merged
 
 
 @router.get("/system/metrics", response_class=PlainTextResponse)

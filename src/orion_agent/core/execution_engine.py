@@ -52,26 +52,27 @@ class ExecutionEngine:
         on_task_update: Callable[[TaskRecord], None] | None = None,
     ) -> TaskRecord:
         if on_progress is not None:
-            on_progress("preparing", "正在准备执行上下文。", "整理源文本、步骤状态和工具运行环境。")
+            on_progress("preparing", "正在准备执行上下文。", "整理源材料、步骤状态和工具运行环境。")
 
         source_material = self._resolve_source_material(task, request)
+        task.context_layers.source_summary = source_material or task.context_layers.source_summary
         if on_task_update is not None:
             on_task_update(task)
 
         for step in task.steps:
             if task.status == TaskStatus.CANCELLED:
                 break
+            if step.status in {StepStatus.DONE, StepStatus.SKIPPED}:
+                continue
 
+            task.checkpoint.current_step_id = step.id
+            task.checkpoint.current_stage = f"step:{step.name}"
             step.status = StepStatus.DOING
             if on_task_update is not None:
                 on_task_update(task)
 
             if on_progress is not None:
-                on_progress(
-                    "step_started",
-                    f"正在执行步骤：{self._localize_step_name(step.name)}",
-                    step.description,
-                )
+                on_progress("step_started", f"正在执行步骤：{self._localize_step_name(step.name)}", step.description)
 
             if step.name == "Parse Task":
                 if on_progress is not None:
@@ -98,22 +99,11 @@ class ExecutionEngine:
                     on_task_update(task)
                 if on_progress is not None:
                     on_progress("tool", "正在联网检索。", "收集与当前任务相关的外部信息。")
-                step.output = self._call_tool(
-                    task=task,
-                    step_id=step.id,
-                    tool_name="web_search",
-                    query=parsed_goal.goal,
-                )
+                step.output = self._call_tool(task=task, step_id=step.id, tool_name="web_search", query=parsed_goal.goal)
                 transition_task(task, TaskStatus.RUNNING)
                 self.memory_manager.write(task, "web_results", step.output)
-                if task.failure_category != FailureCategory.NONE:
-                    self._trigger_replan(
-                        task,
-                        reason="联网检索失败，切换为离线执行。",
-                        detail=task.failure_message,
-                        on_progress=on_progress,
-                        on_task_update=on_task_update,
-                    )
+                if task.failure_category != FailureCategory.NONE and on_progress is not None:
+                    on_progress("tool_failed", "联网检索失败，等待恢复策略。", task.failure_message)
             elif step.name == "Create Plan":
                 if on_progress is not None:
                     on_progress("planning", "正在整理执行步骤。", "汇总已知信息并形成可执行方案。")
@@ -139,10 +129,13 @@ class ExecutionEngine:
             else:
                 step.output = "步骤已完成。"
 
-            if on_task_update is not None:
-                on_task_update(task)
+            if task.failure_category != FailureCategory.NONE and step.status == StepStatus.DOING:
+                step.status = StepStatus.ERROR
+            else:
+                step.status = StepStatus.DONE
+                task.checkpoint.last_completed_step_id = step.id
+                task.checkpoint.last_completed_step_name = step.name
 
-            step.status = StepStatus.DONE
             if on_task_update is not None:
                 on_task_update(task)
 
@@ -153,10 +146,11 @@ class ExecutionEngine:
                     self._progress_detail_for_step(step),
                 )
 
-        task.result = next(
-            (step.output for step in task.steps if step.tool_name == "generate_markdown"),
-            task.result,
-        )
+            if task.failure_category != FailureCategory.NONE:
+                break
+
+        task.result = next((step.output for step in task.steps if step.tool_name == "generate_markdown"), task.result)
+        task.checkpoint.current_step_id = None
         if on_task_update is not None:
             on_task_update(task)
         return task
@@ -178,6 +172,8 @@ class ExecutionEngine:
             return task
 
         deliverable_step.status = StepStatus.RETRYING
+        task.checkpoint.current_step_id = deliverable_step.id
+        task.checkpoint.current_stage = "replanning:generate_markdown"
         if on_task_update is not None:
             on_task_update(task)
         if on_progress is not None:
@@ -201,25 +197,6 @@ class ExecutionEngine:
             on_task_update(task)
         return task
 
-    def _trigger_replan(
-        self,
-        task: TaskRecord,
-        *,
-        reason: str,
-        detail: str | None,
-        on_progress: Callable[[str, str, str | None], None] | None = None,
-        on_task_update: Callable[[TaskRecord], None] | None = None,
-    ) -> None:
-        transition_task(task, TaskStatus.REPLANNING)
-        task.replan_count += 1
-        if on_progress is not None:
-            on_progress("replanning", reason, detail)
-        if on_task_update is not None:
-            on_task_update(task)
-        transition_task(task, TaskStatus.RUNNING)
-        if on_task_update is not None:
-            on_task_update(task)
-
     def _localize_step_name(self, step_name: str) -> str:
         mapping = {
             "Parse Task": "解析任务",
@@ -239,27 +216,12 @@ class ExecutionEngine:
 
     def _resolve_source_material(self, task: TaskRecord, request: TaskCreateRequest) -> str:
         if request.source_path:
-            content = self._call_tool(
-                task=task,
-                step_id="bootstrap",
-                tool_name="read_local_file",
-                path=request.source_path,
-            )
+            content = self._call_tool(task=task, step_id="bootstrap", tool_name="read_local_file", path=request.source_path)
             if task.failure_category != FailureCategory.NONE:
                 return ""
-            return self._call_tool(
-                task=task,
-                step_id="bootstrap",
-                tool_name="summarize_text",
-                text=content,
-            )
+            return self._call_tool(task=task, step_id="bootstrap", tool_name="summarize_text", text=content)
         if request.source_text:
-            return self._call_tool(
-                task=task,
-                step_id="bootstrap",
-                tool_name="summarize_text",
-                text=request.source_text,
-            )
+            return self._call_tool(task=task, step_id="bootstrap", tool_name="summarize_text", text=request.source_text)
         return ""
 
     def _describe_goal(self, parsed_goal: ParsedGoal) -> str:
@@ -280,7 +242,7 @@ class ExecutionEngine:
     def _summarize_plan(self, task: TaskRecord, source_material: str) -> str:
         lines = []
         for step in task.steps:
-            if step.status in {StepStatus.DONE, StepStatus.ERROR} and step.output:
+            if step.status in {StepStatus.DONE, StepStatus.ERROR, StepStatus.SKIPPED} and step.output:
                 lines.append(f"- {step.name}: {step.output}")
         if source_material:
             lines.append(f"- Source summary: {source_material}")
@@ -302,10 +264,8 @@ class ExecutionEngine:
         system_prompt, user_prompt = self.prompts.deliverable_messages(
             parsed_goal_payload=parsed_goal.model_dump_json(indent=2),
             step_outputs_payload=self._serialize_step_outputs(task),
-            recalled_memories_payload=json.dumps(
-                [item.model_dump(mode="json") for item in recalled_memories],
-                ensure_ascii=False,
-            ),
+            recalled_memories_payload=json.dumps([item.model_dump(mode="json") for item in recalled_memories], ensure_ascii=False),
+            session_context=self._serialize_context_layers(task),
         )
         if revision_notes:
             user_prompt = f"{user_prompt}\n\nRevision notes:\n{revision_notes}"
@@ -318,23 +278,23 @@ class ExecutionEngine:
             user_prompt=user_prompt,
             on_result_stream=on_result_stream,
         )
+        draft = self._normalize_deliverable_draft(draft)
 
         if on_progress is not None:
             on_progress("writing", "正在整理 Markdown 结构。", "补充标题、工具调用摘要和来源信息。")
 
         sections = [
-            {"heading": "Deliverable", "content": draft},
-            {"heading": "Tool Invocations", "content": self._serialize_tool_invocations(task)},
+            {"heading": "回答正文", "content": draft},
+            {"heading": "工具调用", "content": self._serialize_tool_invocations(task)},
         ]
         if request.source_path:
-            sections.append({"heading": "Source File", "content": request.source_path})
+            sections.append({"heading": "来源文件", "content": request.source_path})
 
-        result = self._call_tool(
+        result = self._compose_deliverable_markdown(
             task=task,
-            step_id=next(step.id for step in task.steps if step.tool_name == "generate_markdown"),
-            tool_name="generate_markdown",
             title=parsed_goal.deliverable_title,
-            sections=sections,
+            draft=draft,
+            source_path=request.source_path,
         )
 
         if on_progress is not None:
@@ -366,9 +326,55 @@ class ExecutionEngine:
         return final_text
 
     def _should_flush_stream_buffer(self, buffer_text: str) -> bool:
-        if len(buffer_text) >= 24:
+        if len(buffer_text) >= 32:
             return True
-        return buffer_text.endswith(("\n", "。", "，", "！", "？", ".", "!", "?", ";"))
+        return buffer_text.endswith(("\n", "。", "！", "？", "；", ".", "!", "?", ";"))
+
+    def _normalize_deliverable_draft(self, draft: str) -> str:
+        normalized = draft.replace("\r\n", "\n").strip()
+        if not normalized:
+            return normalized
+
+        lines = normalized.split("\n")
+        while lines and not lines[0].strip():
+            lines.pop(0)
+
+        if lines and lines[0].startswith("# "):
+            lines.pop(0)
+            while lines and not lines[0].strip():
+                lines.pop(0)
+
+        if lines and lines[0].strip() in {"## 回答正文", "## Deliverable"}:
+            lines.pop(0)
+            while lines and not lines[0].strip():
+                lines.pop(0)
+
+        return "\n".join(lines).strip()
+
+    def _compose_deliverable_markdown(
+        self,
+        *,
+        task: TaskRecord,
+        title: str,
+        draft: str,
+        source_path: str | None,
+    ) -> str:
+        step_id = next(step.id for step in task.steps if step.tool_name == "generate_markdown")
+        tool_invocations = self._serialize_tool_invocations(task)
+        sections = [
+            {"heading": "回答正文", "content": draft},
+            {"heading": "工具调用", "content": tool_invocations},
+        ]
+        if source_path:
+            sections.append({"heading": "来源文件", "content": source_path})
+
+        return self._call_tool(
+            task=task,
+            step_id=step_id,
+            tool_name="generate_markdown",
+            title=title,
+            sections=sections,
+        )
 
     def _serialize_step_outputs(self, task: TaskRecord) -> str:
         payload = []
@@ -393,6 +399,20 @@ class ExecutionEngine:
                 f"- {item.tool_name} ({item.status.value}, attempt {item.attempt_count}, category {item.failure_category.value}): {preview}"
             )
         return "\n".join(lines)
+
+    def _serialize_context_layers(self, task: TaskRecord) -> str:
+        context = task.context_layers
+        payload = {
+            "session_summary": context.session_summary,
+            "recent_messages": context.recent_messages,
+            "condensed_recent_messages": context.condensed_recent_messages,
+            "recalled_memories": context.recalled_memories,
+            "profile_facts": context.profile_facts,
+            "working_memory": context.working_memory,
+            "source_summary": context.source_summary,
+            "build_notes": context.build_notes,
+        }
+        return json.dumps(payload, ensure_ascii=False, indent=2)
 
     def _call_tool(self, task: TaskRecord, step_id: str, tool_name: str, **kwargs: Any) -> str:
         definition = self.tool_registry.get_definition(tool_name)

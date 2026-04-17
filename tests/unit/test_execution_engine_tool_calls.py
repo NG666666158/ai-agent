@@ -86,7 +86,7 @@ class ExecutionEngineToolCallTests(unittest.TestCase):
             if temp.exists():
                 temp.unlink()
 
-    def test_run_triggers_replanning_when_web_search_fails(self) -> None:
+    def test_run_marks_failure_when_web_search_fails(self) -> None:
         settings = Settings(allow_online_search=True, tool_max_retries=1)
         engine = ExecutionEngine(
             tool_registry=ToolRegistry(settings),
@@ -125,8 +125,9 @@ class ExecutionEngineToolCallTests(unittest.TestCase):
                 on_progress=lambda stage, message, detail=None: progress_messages.append(message),
             )
 
-        self.assertEqual(result.replan_count, 1)
-        self.assertIn("联网检索失败，切换为离线执行。", progress_messages)
+        self.assertEqual(result.replan_count, 0)
+        self.assertEqual(result.failure_category, FailureCategory.TOOL_TIMEOUT)
+        self.assertIn("联网检索失败，等待恢复策略。", progress_messages)
         self.assertEqual(result.status, TaskStatus.RUNNING)
 
     def test_generate_deliverable_records_markdown_tool_invocation(self) -> None:
@@ -139,9 +140,9 @@ class ExecutionEngineToolCallTests(unittest.TestCase):
             ],
         )
         request = TaskCreateRequest(goal="生成交付文档", expected_output="markdown", enable_web_search=False)
-        parsed_goal = ParsedGoal(goal="生成交付文档", expected_output="markdown", deliverable_title="测试交付物")
+        parsed_goal = ParsedGoal(goal="生成交付文档", expected_output="markdown", deliverable_title="测试交付件")
         output = self.engine._generate_deliverable(task, parsed_goal, request, [])
-        self.assertIn("# 测试交付物", output)
+        self.assertIn("# 测试交付件", output)
         self.assertTrue(any(call.tool_name == "generate_markdown" for call in task.tool_invocations))
 
     def test_generate_deliverable_streams_live_draft_updates(self) -> None:
@@ -162,8 +163,9 @@ class ExecutionEngineToolCallTests(unittest.TestCase):
         )
 
         self.assertTrue(snapshots)
-        self.assertEqual(snapshots[-1], task.tool_invocations[-1].input_payload["sections"][0]["content"])
-        self.assertIn("## Deliverable", output)
+        normalized_snapshot = self.engine._normalize_deliverable_draft(snapshots[-1])
+        self.assertEqual(normalized_snapshot, task.tool_invocations[-1].input_payload["sections"][0]["content"])
+        self.assertTrue("## 回答正文" in output or "## Deliverable" in output)
 
 
 if __name__ == "__main__":

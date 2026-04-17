@@ -1,0 +1,17 @@
+# Ralph Progress Log
+Started: 2026-04-17
+
+## Codebase Patterns
+- 后端已经引入统一执行节点 `execution_nodes`，新前端主展示应优先消费这套结构。
+- 控制台和任务详情页都属于执行可视化入口，涉及执行过程展示时需要同步考虑这两个页面。
+- 前端质量回归当前以 `frontend` 目录下 `cmd /c npm run build` 为最小校验。
+- 后端模型与执行链路相关改动，优先补 `tests/unit/` 下的定向 unittest。
+
+## 2026-04-17 23:30 - US-001
+- 已手工完成统一执行主链路数据模型的第一轮收尾。
+- 已新增统一执行节点构建测试，并让任务详情页优先展示 execution_nodes。
+- 相关文件：src/orion_agent/core/models.py、frontend/src/pages/TasksPage.tsx、tests/unit/test_execution_nodes.py
+- 质量检查：
+  - frontend: cmd /c npm run build
+  - backend: python -m unittest tests.unit.test_execution_nodes
+---

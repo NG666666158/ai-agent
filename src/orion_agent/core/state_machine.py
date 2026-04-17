@@ -6,8 +6,15 @@ from orion_agent.core.models import TaskRecord, TaskStatus, utcnow
 ALLOWED_TASK_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.CREATED: {TaskStatus.PARSED, TaskStatus.CANCELLED},
     TaskStatus.PARSED: {TaskStatus.PLANNED, TaskStatus.CANCELLED, TaskStatus.FAILED},
-    TaskStatus.PLANNED: {TaskStatus.RUNNING, TaskStatus.CANCELLED, TaskStatus.FAILED},
+    TaskStatus.PLANNED: {
+        TaskStatus.WAITING_APPROVAL,
+        TaskStatus.RUNNING,
+        TaskStatus.CANCELLED,
+        TaskStatus.FAILED,
+    },
+    TaskStatus.WAITING_APPROVAL: {TaskStatus.RUNNING, TaskStatus.CANCELLED, TaskStatus.FAILED},
     TaskStatus.RUNNING: {
+        TaskStatus.WAITING_APPROVAL,
         TaskStatus.WAITING_TOOL,
         TaskStatus.REPLANNING,
         TaskStatus.REFLECTING,
@@ -16,6 +23,7 @@ ALLOWED_TASK_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     },
     TaskStatus.WAITING_TOOL: {
         TaskStatus.RUNNING,
+        TaskStatus.WAITING_APPROVAL,
         TaskStatus.REPLANNING,
         TaskStatus.FAILED,
         TaskStatus.CANCELLED,
@@ -29,8 +37,8 @@ ALLOWED_TASK_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     },
     TaskStatus.REFLECTING: {TaskStatus.REPLANNING, TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED},
     TaskStatus.COMPLETED: set(),
-    TaskStatus.FAILED: set(),
-    TaskStatus.CANCELLED: set(),
+    TaskStatus.FAILED: {TaskStatus.RUNNING},
+    TaskStatus.CANCELLED: {TaskStatus.RUNNING},
 }
 
 

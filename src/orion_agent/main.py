@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 
+from orion_agent.api.routes.memories import router as memories_router
+from orion_agent.api.routes.sessions import router as sessions_router
 from orion_agent.api.routes.system import router as system_router
 from orion_agent.api.routes.tasks import router as tasks_router
 from orion_agent.frontend_routes import router as frontend_router
@@ -18,5 +20,7 @@ def healthcheck() -> dict[str, str]:
 
 
 app.include_router(tasks_router, prefix="/api")
+app.include_router(sessions_router, prefix="/api")
+app.include_router(memories_router, prefix="/api")
 app.include_router(system_router, prefix="/api")
 app.include_router(frontend_router)

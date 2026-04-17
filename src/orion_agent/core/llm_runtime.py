@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from typing import Any
@@ -273,20 +274,20 @@ class FallbackLLMClient(BaseLLMClient):
                 "expected_output": request_payload.get("expected_output", "markdown"),
                 "priority": "high",
                 "domain": domain,
-                "deliverable_title": "AI Agent MVP Delivery",
+                "deliverable_title": "AI Agent 执行结果",
             }
         if "planner" in system_prompt.lower():
             include_web = "Web search allowed: True" in user_prompt
             has_source = "Has source material: True" in user_prompt
             steps: list[dict[str, Any]] = [
-                {"name": "Parse Task", "description": "Clarify the task goal and constraints.", "tool_name": None},
-                {"name": "Recall Memory", "description": "Review relevant short-term and long-term memory.", "tool_name": None},
+                {"name": "Parse Task", "description": "解析任务目标与约束条件。", "tool_name": None},
+                {"name": "Recall Memory", "description": "检索相关短期与长期记忆。", "tool_name": None},
             ]
             if has_source:
                 steps.append(
                     {
                         "name": "Read Source Material",
-                        "description": "Summarize provided material before planning.",
+                        "description": "先读取并整理提供的资料内容。",
                         "tool_name": "read_local_file",
                     }
                 )
@@ -294,52 +295,55 @@ class FallbackLLMClient(BaseLLMClient):
                 steps.append(
                     {
                         "name": "Web Research",
-                        "description": "Collect recent supporting information from the web.",
+                        "description": "补充联网检索得到的外部信息。",
                         "tool_name": "web_search",
                     }
                 )
             steps.extend(
                 [
-                    {"name": "Create Plan", "description": "Draft the implementation plan.", "tool_name": None},
-                    {"name": "Draft Deliverable", "description": "Generate the final Markdown deliverable.", "tool_name": "generate_markdown"},
-                    {"name": "Review Output", "description": "Validate completeness and quality.", "tool_name": None},
+                    {"name": "Create Plan", "description": "生成可执行的任务计划。", "tool_name": None},
+                    {"name": "Draft Deliverable", "description": "调用模型生成最终回答正文。", "tool_name": "generate_markdown"},
+                    {"name": "Review Output", "description": "检查结果完整性与质量。", "tool_name": None},
                 ]
             )
             return {"steps": steps}
         if "ai reviewer" in system_prompt.lower():
             return {
                 "passed": True,
-                "summary": "Fallback reviewer accepted the deliverable.",
+                "summary": "回退评审已通过当前结果。",
                 "checklist": [
-                    "Goal coverage: pass",
-                    "Structured output: pass",
-                    "Actionable implementation notes: pass",
+                    "目标覆盖：通过",
+                    "结构化输出：通过",
+                    "可执行建议：通过",
                 ],
             }
         if "memory writer" in system_prompt.lower():
             goal = self._extract_goal(user_prompt)
             return {
                 "topic": goal[:80],
-                "summary": f"Memory for task: {goal}",
+                "summary": f"任务记忆：{goal}",
                 "details": user_prompt[-400:],
-                "tags": ["agent", "mvp", "planning", *goal.lower().split()[:2]],
+                "tags": ["agent", "任务", "规划", *goal.lower().split()[:2]],
             }
         return {}
 
     def generate_text(self, *, system_prompt: str, user_prompt: str) -> str:
+        if "conversation summarizer" in system_prompt.lower():
+            return self._summarize_conversation(user_prompt)
         return "".join(self.stream_text(system_prompt=system_prompt, user_prompt=user_prompt))
 
     def stream_text(self, *, system_prompt: str, user_prompt: str) -> Iterator[str]:
         goal = self._extract_goal(user_prompt)
         text = (
-            "# AI Agent MVP Delivery\n\n"
-            "## Goal\n"
+            "# AI 助手执行结果\n\n"
+            "## 任务目标\n"
             f"{goal}\n\n"
-            "## Implementation Summary\n"
-            "- Replaced the rule-based flow with prompt-driven orchestration.\n"
-            "- Added tool usage, web research support, and long-term memory.\n"
-            "- Preserved deterministic fallback behavior for local development.\n"
+            "## 结果概览\n"
+            "- 系统已根据当前任务目标完成基础分析与组织。\n"
+            "- 已结合工具调用、记忆检索和当前上下文生成回答。\n"
+            "- 当前结果来自回退模式，适合本地联调与链路验证。\n"
         )
+        text = self._build_fallback_markdown(goal, user_prompt)
         chunk_size = 48
         for index in range(0, len(text), chunk_size):
             yield text[index : index + chunk_size]
@@ -348,6 +352,9 @@ class FallbackLLMClient(BaseLLMClient):
         json_payload = self._extract_json_payload(payload)
         if "goal" in json_payload and isinstance(json_payload["goal"], str):
             return json_payload["goal"]
+        matched_goal = re.search(r'"goal"\s*:\s*"([^"]+)"', payload, re.IGNORECASE)
+        if matched_goal:
+            return matched_goal.group(1).strip()
         lines = payload.splitlines()
         for index, line in enumerate(lines):
             if "goal" in line.lower():
@@ -356,9 +363,9 @@ class FallbackLLMClient(BaseLLMClient):
                     return extracted
                 for follow_line in lines[index + 1 :]:
                     cleaned = follow_line.strip().strip('",')
-                    if cleaned:
+                    if cleaned and cleaned not in {"{", "}", "[", "]"}:
                         return cleaned
-        return "Complete the requested task"
+        return "完成当前请求"
 
     def _extract_constraints(self, payload: str) -> list[str]:
         json_payload = self._extract_json_payload(payload)
@@ -397,6 +404,77 @@ class FallbackLLMClient(BaseLLMClient):
             "preview": "fallback-active",
         }
 
+    def _summarize_conversation(self, payload: str) -> str:
+        lines = [line.strip("- ").strip() for line in payload.splitlines() if line.strip().startswith("- ")]
+        if not lines:
+            return "暂无可压缩的历史上下文。"
+        recent = lines[-8:]
+        return " | ".join(recent)[:1200]
+
+    def _build_fallback_markdown(self, goal: str, user_prompt: str) -> str:
+        answer = self._build_fallback_answer(goal, user_prompt)
+        return (
+            "# AI 助手执行结果\n\n"
+            "## 任务目标\n"
+            f"{goal}\n\n"
+            "## 回答内容\n"
+            f"{answer}\n\n"
+            "## 结果说明\n"
+            "- 当前结果由本地回退模式生成。\n"
+            "- 已根据任务目标输出可直接阅读的正文内容。\n"
+            "- 如需更强推理与事实性，可切换在线模型继续生成。\n"
+        )
+
+    def _build_fallback_answer(self, goal: str, user_prompt: str) -> str:
+        lowered = goal.lower()
+
+        if any(keyword in goal for keyword in ["讲个故事", "写个故事", "编个故事", "小故事"]):
+            return (
+                "从前有一座靠海的小城，城里有一家很旧的钟表铺。铺子的主人是个沉默的老人，"
+                "但大家都知道，只要把坏掉的表送到他手里，第二天多半就能重新走动起来。\n\n"
+                "有一天，一个总爱发呆的小女孩抱着一只停摆的怀表来到店里。她说，这是妈妈留下的，"
+                "可自从妈妈离开后，表也不走了。老人接过怀表，没有立刻修，只是让她第二天傍晚再来。\n\n"
+                "第二天傍晚，风很大，女孩准时来到店里。老人把怀表放回她手心，说：表其实昨天就能修好，"
+                "但我想等今天。女孩问为什么。老人笑了笑，说：因为有些东西重新走动，不只是因为零件装好了，"
+                "还因为有人愿意等它。\n\n"
+                "女孩低头一看，怀表的指针正一格一格地走着，像很轻很轻的心跳。那一刻她忽然明白，"
+                "原来想念不会让时间停下，真正让人往前走的，是在想念里依旧愿意相信未来。\n\n"
+                "她把怀表贴在胸口，第一次觉得海风也没有那么冷了。"
+            )
+
+        if any(keyword in goal for keyword in ["天气", "下雨", "气温", "温度"]):
+            return (
+                "我目前没有稳定的实时天气数据源，所以不能直接保证即时天气结论完全准确。\n\n"
+                "如果你要查询实时天气，建议告诉我城市名并开启联网查询，或者直接查看本地天气应用。\n\n"
+                "如果你愿意，我也可以基于你给的城市，帮你整理一版更易读的天气播报模板。"
+            )
+
+        if any(keyword in goal for keyword in ["学习路线", "怎么学", "学习建议", "入门", "路线图"]):
+            return (
+                f"围绕“{goal}”，建议按照“基础认知 -> 核心练习 -> 项目验证”三段推进。\n\n"
+                "第一阶段先搞清楚基本概念和主线框架，避免一开始陷入细节；\n"
+                "第二阶段通过高频练习把知识变成可重复使用的能力；\n"
+                "第三阶段一定要做一个小项目，把零散知识串成完整经验。\n\n"
+                "如果你希望，我下一轮可以继续把它拆成按周执行的具体计划。"
+            )
+
+        if any(keyword in goal for keyword in ["总结", "概括", "摘要", "归纳"]):
+            return (
+                f"针对“{goal}”，建议先抓住主题、重点和结论三层结构。\n\n"
+                "如果是资料整理类任务，最稳妥的做法是先列提纲，再合并相近信息，最后分别输出简版摘要和详细说明。"
+            )
+
+        if "story" in lowered:
+            return (
+                "这里给你一个简短故事：一个年轻人总觉得自己走得太慢，直到有一天他发现，"
+                "那些看似绕远的路，其实让他学会了如何在风雨里站稳。后来他终于明白，"
+                "成长不是突然变强，而是在一次次没有放弃之后，慢慢拥有了继续向前的能力。"
+            )
+
+        return (
+            f"关于“{goal}”，我先给出直接回答：这类问题最适合先明确目标，再拆成 2 到 3 个可执行动作逐步推进。\n\n"
+            "如果你愿意继续补充背景、限制条件或你想要的输出形式，我可以把回答细化成更完整的正式版本。"
+        )
 
 def build_llm_client(settings: Settings) -> BaseLLMClient:
     if settings.force_fallback_llm:

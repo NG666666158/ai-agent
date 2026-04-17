@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 router = APIRouter(tags=["frontend"], include_in_schema=False)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
-SPA_PATHS = {"", "/", "tasks", "memories", "settings"}
+SPA_PATHS = {"", "/", "tasks", "sessions", "memories", "profile", "settings"}
 
 
 def _frontend_index() -> Path:

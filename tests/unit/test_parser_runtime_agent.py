@@ -108,6 +108,18 @@ class ParserRuntimeAgentTests(unittest.TestCase):
         self.assertEqual(payload["expected_output"], "markdown")
         self.assertIsInstance(payload["constraints"], list)
 
+    # 对应 test_spec.md：fallback 正文生成不能只返回空模板，至少要对简单开放问题给出可读回答。
+    def test_fallback_stream_text_returns_substantive_story_answer(self) -> None:
+        client = FallbackLLMClient()
+        text = "".join(
+            client.stream_text(
+                system_prompt="You are an AI execution agent.",
+                user_prompt='Goal:\n{"goal":"讲个故事啊"}',
+            )
+        )
+        self.assertIn("## 回答内容", text)
+        self.assertIn("从前", text)
+
 
 if __name__ == "__main__":
     unittest.main()

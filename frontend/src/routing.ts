@@ -1,16 +1,20 @@
-export type View = "console" | "tasks" | "memories" | "settings";
+export type View = "console" | "tasks" | "sessions" | "memories" | "profile" | "settings";
 
 const pathToView: Record<string, View> = {
   "/": "console",
   "/tasks": "tasks",
+  "/sessions": "sessions",
   "/memories": "memories",
+  "/profile": "profile",
   "/settings": "settings",
 };
 
 const viewToPath: Record<View, string> = {
   console: "/",
   tasks: "/tasks",
+  sessions: "/sessions",
   memories: "/memories",
+  profile: "/profile",
   settings: "/settings",
 };
 

@@ -6,7 +6,7 @@ from textwrap import dedent
 class PromptLibrary:
     """Central store for reusable prompt templates."""
 
-    def parse_goal_messages(self, request_payload: str) -> tuple[str, str]:
+    def parse_goal_messages(self, request_payload: str, session_context: str | None = None) -> tuple[str, str]:
         system = dedent(
             """
             You are an AI agent task parser.
@@ -15,7 +15,11 @@ class PromptLibrary:
             Return JSON only.
             """
         ).strip()
-        user = f"Parse this task request into JSON:\n{request_payload}"
+        user_parts = []
+        if session_context:
+            user_parts.append(f"Conversation context summary:\n{session_context}")
+        user_parts.append(f"Parse this task request into JSON:\n{request_payload}")
+        user = "\n\n".join(user_parts)
         return system, user
 
     def plan_messages(
@@ -60,24 +64,63 @@ class PromptLibrary:
         parsed_goal_payload: str,
         step_outputs_payload: str,
         recalled_memories_payload: str,
+        session_context: str | None = None,
     ) -> tuple[str, str]:
         system = dedent(
             """
             You are an AI execution agent.
             Generate the final deliverable in Markdown.
             The result must be concrete, implementation-oriented, and clearly structured.
+            Respond in Simplified Chinese by default unless the user explicitly requests another language.
+            """
+        ).strip()
+        parts = []
+        if session_context:
+            parts.append(
+                dedent(
+                    f"""
+                    Conversation context summary:
+                    {session_context}
+                    """
+                ).strip()
+            )
+        parts.append(
+            dedent(
+                f"""
+                Goal:
+                {parsed_goal_payload}
+
+                Step outputs:
+                {step_outputs_payload}
+
+                Relevant long-term memories:
+                {recalled_memories_payload}
+                """
+            ).strip()
+        )
+        user = "\n\n".join(parts)
+        return system, user
+
+    def conversation_summary_messages(
+        self,
+        previous_summary: str,
+        messages_payload: str,
+    ) -> tuple[str, str]:
+        system = dedent(
+            """
+            You are a conversation summarizer for a multi-turn AI agent.
+            Compress the ongoing conversation into a concise working-memory summary.
+            Keep user goals, constraints, decisions, unresolved items, and important outputs.
+            Return plain text only.
             """
         ).strip()
         user = dedent(
             f"""
-            Goal:
-            {parsed_goal_payload}
+            Previous summary:
+            {previous_summary or "(none)"}
 
-            Step outputs:
-            {step_outputs_payload}
-
-            Relevant long-term memories:
-            {recalled_memories_payload}
+            New messages to compress:
+            {messages_payload}
             """
         ).strip()
         return system, user

@@ -40,7 +40,7 @@ class AgentServiceTests(unittest.TestCase):
         self.assertTrue(response.review and response.review.passed)
         self.assertGreaterEqual(len(response.tool_invocations), 2)
 
-    def test_create_task_reads_source_file(self) -> None:
+    def test_create_task_reads_source_file_requires_confirmation(self) -> None:
         source_file = Path(f"test_notes_{uuid4().hex}.md").resolve()
         source_file.write_text("这是一个用于验证文件读取工具的本地文档。", encoding="utf-8")
         self.temp_files.append(source_file)
@@ -54,9 +54,9 @@ class AgentServiceTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(response.status, TaskStatus.COMPLETED)
-        self.assertIn(str(source_file), response.result)
-        self.assertTrue(any(call.tool_name == "read_local_file" for call in response.tool_invocations))
+        self.assertEqual(response.status, TaskStatus.WAITING_APPROVAL)
+        self.assertEqual(len(response.pending_approvals), 1)
+        self.assertEqual(response.pending_approvals[0].tool_name, "read_local_file")
 
     def test_repository_persists_task_for_listing(self) -> None:
         created = self.service.create_and_run_task(

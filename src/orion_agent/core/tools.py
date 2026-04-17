@@ -42,9 +42,10 @@ class ToolRegistry:
             ),
             "read_local_file": ToolDefinition(
                 name="read_local_file",
-                description="读取本地文本文件内容。",
+                description="读取本地文本文件内容，需要用户确认。",
                 input_schema={"path": "string"},
                 output_schema={"content": "string"},
+                permission_level=ToolPermission.CONFIRM,
                 max_retries=0,
             ),
             "extract_keywords": ToolDefinition(
@@ -55,7 +56,7 @@ class ToolRegistry:
             ),
             "web_search": ToolDefinition(
                 name="web_search",
-                description="Search the public web for supporting information.",
+                description="联网搜索公开信息，补充任务所需的上下文。",
                 input_schema={"query": "string"},
                 output_schema={"results": "string"},
                 permission_level=ToolPermission.SAFE,
