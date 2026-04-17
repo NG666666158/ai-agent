@@ -77,8 +77,8 @@
         "Tests pass"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Already implemented. extract_facts/remember/snapshot chain; session profile_snapshot; citation_sources kind=profile."
     },
     {
       "id": "US-006",

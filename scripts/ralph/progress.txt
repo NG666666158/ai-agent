@@ -7,6 +7,12 @@ Started: 2026-04-17
 - 前端质量回归当前以 `frontend` 目录下 `cmd /c npm run build` 为最小校验。
 - 后端模型与执行链路相关改动，优先补 `tests/unit/` 下的定向 unittest。
 
+## 2026-04-18 00:30 - US-005
+- 跨会话记忆和用户画像注入已实现：extract_facts() 从用户消息中提取画像并通过 remember() 持久化；新会话通过 profile_manager.snapshot() 注入画像摘要到 context_layers；响应来源通过 citation_sources 中的 kind=profile 和 source_record_id 标识来自画像。
+- 质量检查：15 unittest ✓；npm run build --prefix frontend ✓
+- 学到：session.profile_snapshot 在创建会话时即快照最新画像，无需每次重新计算；提取和匹配是两个独立阶段（extract_facts 在任务结束时，match_relevant 在任务规划时）。
+---
+
 ## 2026-04-18 00:20 - US-004
 - 记忆元数据和最小化混合检索已实现：LongTermMemoryRecord 已有 memory_type 字段；recall() 方法返回 retrieval_score、retrieval_reason、retrieval_channels；混合检索结合 vector_store、local_vector、lexical 三个通道并做 rerank 排序。在 test_agent_service_v3 和 test_api_v1 中已有验证覆盖。
 - 质量检查：15 unittest ✓；npm run build --prefix frontend ✓
