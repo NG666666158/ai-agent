@@ -7,6 +7,13 @@ Started: 2026-04-17
 - 前端质量回归当前以 `frontend` 目录下 `cmd /c npm run build` 为最小校验。
 - 后端模型与执行链路相关改动，优先补 `tests/unit/` 下的定向 unittest。
 
+## 2026-04-18 00:10 - US-003
+- 实现可恢复的重规划流程：新增 tests/unit/test_recovery_flow.py，覆盖跳过失败步骤、重建后半段计划、从检查点重规划三种策略的测试。验证 ReplanEvent.resume_from_step_name/id 正确持久化恢复起点，checkpoint.recovery_attempt 正确递增。
+- 相关文件：src/orion_agent/core/runtime_agent.py（三种恢复分支）、tests/unit/test_recovery_flow.py
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow ✓ (15 tests)；npm run build --prefix frontend ✓
+- 学到：_can_skip_failed_step 只对 web_search + timeout/error/unavailable 组合返回 True，其他步骤失败走 replan 路径。
+---
+
 ## 2026-04-17 23:55 - US-002
 - 细化执行阶段与恢复链路：已在 runtime_agent 中补充完整的阶段推进与检查点记录，恢复事件（ReplanEvent）包含策略、尝试次数和恢复起点信息。前端通过 execution_nodes 统一渲染恢复链路，同时在控制台任务详情中展示重规划历史。
 - 相关文件：src/orion_agent/core/runtime_agent.py、src/orion_agent/core/models.py、frontend/src/pages/ConsolePage.tsx、frontend/src/pages/TasksPage.tsx

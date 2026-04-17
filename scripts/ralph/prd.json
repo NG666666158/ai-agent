@@ -46,8 +46,8 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. Recovery strategies (skip, rebuild-tail, replan-from-checkpoint) are implemented and tested with RecoveryFlowTests."
     },
     {
       "id": "US-004",
