@@ -172,6 +172,9 @@ class UserProfileFact(BaseModel):
     source_message_id: str | None = None
     source_task_id: str | None = None
     summary: str = ""
+    governance_flags: set[str] = Field(default_factory=set)
+    last_accessed_at: datetime | None = None
+    accessed_count: int = 0
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -198,6 +201,12 @@ class ProgressUpdate(BaseModel):
     message: str
     detail: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class MemoryStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    PRUNED = "PRUNED"
+    ARCHIVED = "ARCHIVED"
 
 
 class MemorySource(BaseModel):
@@ -232,9 +241,14 @@ class LongTermMemoryRecord(BaseModel):
     retrieval_channels: list[str] = Field(default_factory=list)
     source: MemorySource = Field(default_factory=MemorySource)
     versions: list[MemoryVersion] = Field(default_factory=list)
+    status: MemoryStatus = MemoryStatus.ACTIVE
+    governance_flags: set[str] = Field(default_factory=set)
+    last_accessed_at: datetime | None = None
+    accessed_count: int = 0
     deleted: bool = False
     deleted_at: datetime | None = None
     created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class ToolDefinition(BaseModel):
@@ -329,6 +343,43 @@ class ChatSession(BaseModel):
     profile_snapshot: list[str] = Field(default_factory=list)
 
 
+class ContextTraceEntry(BaseModel):
+    """Structured trace entry for context layer construction.
+
+    Provides explicit source and metadata for each context layer build step,
+    replacing the previous plain-string build_notes format.
+    """
+
+    layer: str
+    source: str
+    source_id: str | None = None
+    message: str
+    timestamp: datetime = Field(default_factory=utcnow)
+
+
+class ContextBudgetUsage(BaseModel):
+    """Structured budget usage tracking for context layers.
+
+    Tracks limit and actual usage per budget category, replacing the
+    previous flat dict[str, int] layer_budget format.
+    """
+
+    session_summary_limit: int = 0
+    session_summary_used: int = 0
+    recent_messages_limit: int = 0
+    recent_messages_count: int = 0
+    condensed_recent_messages_limit: int = 0
+    condensed_recent_messages_count: int = 0
+    recalled_memories_limit: int = 0
+    recalled_memories_count: int = 0
+    profile_facts_limit: int = 0
+    profile_facts_count: int = 0
+    working_memory_limit: int = 0
+    working_memory_count: int = 0
+    source_summary_limit: int = 0
+    source_summary_used: int = 0
+
+
 class ContextLayer(BaseModel):
     system_instructions: str = ""
     session_summary: str = ""
@@ -340,6 +391,8 @@ class ContextLayer(BaseModel):
     source_summary: str = ""
     layer_budget: dict[str, int] = Field(default_factory=dict)
     build_notes: list[str] = Field(default_factory=list)
+    trace_entries: list[ContextTraceEntry] = Field(default_factory=list)
+    budget_usage: ContextBudgetUsage | None = None
     version: int = 1
 
 
@@ -549,6 +602,13 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
                     ExecutionNodeArtifact(
                         label="构建说明",
                         content="\n".join(record.context_layers.build_notes) or "暂无",
+                    ),
+                    ExecutionNodeArtifact(
+                        label="结构化追踪",
+                        content="\n".join(
+                            f"[{e.layer}] {e.source}: {e.message}"
+                            for e in record.context_layers.trace_entries
+                        ) or "暂无",
                     ),
                 ],
             )

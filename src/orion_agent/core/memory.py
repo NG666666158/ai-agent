@@ -5,7 +5,7 @@ from datetime import datetime
 
 from orion_agent.core.embedding_runtime import BaseEmbedder
 from orion_agent.core.embedding_runtime import cosine_similarity
-from orion_agent.core.models import LongTermMemoryRecord, MemoryEntry, MemoryVersion, TaskRecord
+from orion_agent.core.models import LongTermMemoryRecord, MemoryEntry, MemoryVersion, TaskRecord, utcnow
 from orion_agent.core.repository import TaskRepository
 from orion_agent.core.vector_store import BaseVectorStore
 
@@ -93,7 +93,14 @@ class LongTermMemoryManager:
             reranked.append((score, reranked_record.created_at, reranked_record))
 
         reranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        return [item[2] for item in reranked[:limit]]
+        results = [item[2] for item in reranked[:limit]]
+        # Track governance access metadata and persist
+        now = utcnow()
+        for record in results:
+            record.last_accessed_at = now
+            record.accessed_count += 1
+            self.repository.save_long_term_memory(record)
+        return results
 
     def remember(self, record: LongTermMemoryRecord) -> LongTermMemoryRecord:
         if not record.embedding:

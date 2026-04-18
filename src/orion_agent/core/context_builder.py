@@ -9,7 +9,13 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
-from orion_agent.core.models import ContextLayer, TaskCreateRequest
+from orion_agent.core.models import (
+    ContextBudgetUsage,
+    ContextLayer,
+    ContextTraceEntry,
+    TaskCreateRequest,
+    utcnow,
+)
 
 if TYPE_CHECKING:
     from orion_agent.core.profile import UserProfileManager
@@ -37,19 +43,102 @@ class ContextBuilder:
         """Build a complete ContextLayer from a task creation request."""
         session_context = self._build_session_context(request.session_id)
         budget = dict(CONTEXT_BUDGET)
+        trace_entries: list[ContextTraceEntry] = []
+        now = utcnow()
 
-        source_summary = self._trim_text(request.source_text or "", budget["source_summary"])
-        recent_messages = [
-            self._trim_text(item, 240)
-            for item in list(session_context["recent_messages"])[: budget["recent_messages"]]
-        ]
-        condensed_recent_messages = [
-            self._trim_text(item, 120) for item in recent_messages[: budget["condensed_recent_messages"]]
-        ]
-        profile_facts = [
-            self._trim_text(item, 120)
-            for item in list(session_context["profile_facts"])[: budget["profile_facts"]]
-        ]
+        # session_summary
+        session_summary_text = self._trim_text(str(session_context["session_summary"]), budget["session_summary"])
+        trace_entries.append(
+            ContextTraceEntry(
+                layer="session_summary",
+                source="session",
+                source_id=request.session_id,
+                message=f"limit={budget['session_summary']} chars, used={len(session_summary_text)}",
+            )
+        )
+
+        # recent_messages
+        raw_recent = list(session_context["recent_messages"])[: budget["recent_messages"]]
+        recent_messages = [self._trim_text(item, 240) for item in raw_recent]
+        trace_entries.append(
+            ContextTraceEntry(
+                layer="recent_messages",
+                source="session_messages",
+                source_id=request.session_id,
+                message=f"limit={budget['recent_messages']}, count={len(recent_messages)}",
+            )
+        )
+
+        # condensed_recent_messages
+        condensed_raw = recent_messages[: budget["condensed_recent_messages"]]
+        condensed_recent_messages = [self._trim_text(item, 120) for item in condensed_raw]
+        trace_entries.append(
+            ContextTraceEntry(
+                layer="condensed_recent_messages",
+                source="session_messages",
+                source_id=request.session_id,
+                message=f"limit={budget['condensed_recent_messages']}, count={len(condensed_recent_messages)}",
+            )
+        )
+
+        # profile_facts
+        raw_profile = list(session_context["profile_facts"])[: budget["profile_facts"]]
+        profile_facts = [self._trim_text(item, 120) for item in raw_profile]
+        trace_entries.append(
+            ContextTraceEntry(
+                layer="profile_facts",
+                source="user_profile",
+                source_id=None,
+                message=f"limit={budget['profile_facts']}, count={len(profile_facts)}",
+            )
+        )
+
+        # working_memory
+        working_raw = [
+            f"goal={request.goal}",
+            f"expected_output={request.expected_output}",
+            f"memory_scope={request.memory_scope}",
+        ][: budget["working_memory"]]
+        working_memory = [self._trim_text(item, 240) for item in working_raw]
+        trace_entries.append(
+            ContextTraceEntry(
+                layer="working_memory",
+                source="task_request",
+                source_id=None,
+                message=f"limit={budget['working_memory']}, count={len(working_memory)}",
+            )
+        )
+
+        # source_summary
+        source_summary_text = self._trim_text(request.source_text or "", budget["source_summary"])
+        trace_entries.append(
+            ContextTraceEntry(
+                layer="source_summary",
+                source="task_request",
+                source_id=None,
+                message=f"limit={budget['source_summary']} chars, used={len(source_summary_text)}",
+            )
+        )
+
+        # budget usage
+        budget_usage = ContextBudgetUsage(
+            session_summary_limit=budget["session_summary"],
+            session_summary_used=len(session_summary_text),
+            recent_messages_limit=budget["recent_messages"],
+            recent_messages_count=len(recent_messages),
+            condensed_recent_messages_limit=budget["condensed_recent_messages"],
+            condensed_recent_messages_count=len(condensed_recent_messages),
+            recalled_memories_limit=budget["recalled_memories"],
+            recalled_memories_count=0,  # filled by runtime after recall
+            profile_facts_limit=budget["profile_facts"],
+            profile_facts_count=len(profile_facts),
+            working_memory_limit=budget["working_memory"],
+            working_memory_count=len(working_memory),
+            source_summary_limit=budget["source_summary"],
+            source_summary_used=len(source_summary_text),
+        )
+
+        # legacy build_notes still produced for backward compatibility
         build_notes = [
             f"session_summary<{budget['session_summary']} chars",
             f"recent_messages<={budget['recent_messages']}",
@@ -59,18 +148,16 @@ class ContextBuilder:
 
         return ContextLayer(
             system_instructions="Follow the task goal, satisfy constraints, and keep the output structured.",
-            session_summary=self._trim_text(str(session_context["session_summary"]), budget["session_summary"]),
+            session_summary=session_summary_text,
             recent_messages=recent_messages,
             condensed_recent_messages=condensed_recent_messages,
             profile_facts=profile_facts,
-            working_memory=[
-                f"goal={request.goal}",
-                f"expected_output={request.expected_output}",
-                f"memory_scope={request.memory_scope}",
-            ][: budget["working_memory"]],
-            source_summary=source_summary,
+            working_memory=working_memory,
+            source_summary=source_summary_text,
             layer_budget=budget,
             build_notes=build_notes,
+            trace_entries=trace_entries,
+            budget_usage=budget_usage,
             version=int(time.time()),
         )
 

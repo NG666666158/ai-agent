@@ -165,3 +165,19 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_session_store tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_profile_and_memory ✓ (69 tests)；PYTHONPATH=src python -m unittest test_citation_map test_citation_runtime test_execution_engine_tool_calls ✓ (30 tests)
 - 学到：SessionStore 封装所有会话持久化和检索流程，包括会话创建（含分叉复制消息）、消息追加、摘要压缩、trace lookup；create_session 中使用 self.get_session() 获取源会话详情时注意不要与 repository.get_session() 混淆导致类型错误；append_message 在 session 不存在时会先创建会话并两次调用 save_session（一次创建会话框架，一次在消息追加后更新 message_count）。
 ---
+
+## 2026-04-18 05:20 - US-R9
+- 已强化上下文层合约和追踪元数据：新增 ContextTraceEntry 和 ContextBudgetUsage Pydantic 模型；ContextLayer 新增 trace_entries 和 budget_usage 字段（与 build_notes/layer_budget 并存保持兼容）；ContextBuilder.build() 填充所有结构化追踪条目和预算使用；runtime_agent._render_context_layers() 输出 trace_entries 和 budget_usage；build_execution_nodes_v2 的 prompt_assembly 节点新增"结构化追踪"artifact；runtime_agent 在记忆召回后更新 budget_usage.recalled_memories_count。
+- 修改文件：src/orion_agent/core/models.py（新增 ContextTraceEntry、ContextBudgetUsage、ContextLayer 新字段）、src/orion_agent/core/context_builder.py（build() 填充 trace_entries 和 budget_usage）、src/orion_agent/core/runtime_agent.py（_render_context_layers 输出新字段，_run_task_flow 更新 budget_usage）
+- 新增文件：tests/unit/test_context_builder.py（新增 3 个测试验证 trace_entries 和 budget_usage）
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_context_builder ✓ (8 tests)；PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_profile_and_memory tests.unit.test_session_store ✓ (72 tests)
+- 学到：ContextTraceEntry 的 layer 标识追踪的层级（session_summary/recent_messages 等），source 标识数据来源（session/user_profile/task_request），message 包含具体的限度和使用量信息；budget_usage 在 ContextBuilder.build() 时 recalled_memories_count 初始为 0，由 runtime_agent 在召回后更新。
+---
+
+## 2026-04-18 05:40 - US-R10
+- 已强化记忆和画像治理字段：LongTermMemoryRecord 新增 status（MemoryStatus enum）、governance_flags、last_accessed_at、accessed_count、updated_at；UserProfileFact 新增 governance_flags、last_accessed_at、accessed_count；recall() 在召回时自动更新 last_accessed_at 和 accessed_count 并持久化；match_relevant() 在匹配时同样更新访问元数据并持久化；repository.save_long_term_memory 在保存时自动设置 updated_at。
+- 修改文件：src/orion_agent/core/models.py（LongTermMemoryRecord 和 UserProfileFact 新增治理字段，MemoryStatus 枚举）、src/orion_agent/core/memory.py（recall() 填充访问元数据）、src/orion_agent/core/profile.py（match_relevant() 填充访问元数据）、src/orion_agent/core/repository.py（save_long_term_memory 自动设置 updated_at）
+- 新增文件：tests/unit/test_profile_and_memory.py（新增 4 个治理相关测试）
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_profile_and_memory ✓ (7 tests)；PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_profile_and_memory tests.unit.test_session_store ✓ (76 tests)
+- 学到：governance_flags 为 set[str] 类型，Pydantic v2 的 Field(default_factory=set) 可以正常序列化；accessed_count 在每次 recall/match 时递增，即使同一记忆被多次召回也会正确累加；last_accessed_at 使用 utcnow() 在每次访问时更新。
+---

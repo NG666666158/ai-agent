@@ -298,6 +298,7 @@ class TaskRepository:
         return [ChatMessage.model_validate_json(row[0]) for row in rows]
 
     def save_long_term_memory(self, record: LongTermMemoryRecord) -> LongTermMemoryRecord:
+        record.updated_at = utcnow()
         with self._lock:
             with self._connect() as conn:
                 conn.execute(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from orion_agent.core.models import UserProfileFact, UserProfileFactStatus
+from orion_agent.core.models import UserProfileFact, UserProfileFactStatus, utcnow
 from orion_agent.core.repository import TaskRepository
 
 
@@ -158,7 +158,14 @@ class UserProfileManager:
             if score > 0:
                 scored.append((score, fact))
         scored.sort(key=lambda item: (-item[0], -item[1].updated_at.timestamp()))
-        return [item[1] for item in scored[:limit]]
+        results = [item[1] for item in scored[:limit]]
+        # Track governance access metadata and persist
+        now = utcnow()
+        for fact in results:
+            fact.last_accessed_at = now
+            fact.accessed_count += 1
+            self.repository.save_user_profile_fact(fact)
+        return results
 
     def _archive_conflicts(self, fact: UserProfileFact, *, skip_ids: set[str] | None = None) -> None:
         skip_ids = skip_ids or set()
@@ -172,7 +179,7 @@ class UserProfileManager:
             item.status = UserProfileFactStatus.ARCHIVED
             item.superseded_by = fact.id
             if not item.summary:
-                item.summary = f"该画像已被更新为更近期的偏好：{fact.value}"
+                item.summary = f"该画像已被更新为更新近的偏好：{fact.value}"
             self.repository.save_user_profile_fact(item)
 
     def _normalize_language(self, value: str) -> str:

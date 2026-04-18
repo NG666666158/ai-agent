@@ -18,6 +18,8 @@ from orion_agent.core.models import (
     ChatMessage,
     ChatMessageRole,
     ChatSession,
+    ContextBudgetUsage,
+    ContextTraceEntry,
     TaskCreateRequest,
 )
 
@@ -70,6 +72,77 @@ class ContextBuilderTests(unittest.TestCase):
         self.assertEqual(ctx.source_summary, "这是一个 Python 项目。")
         self.assertEqual(ctx.layer_budget, CONTEXT_BUDGET)
         self.assertIsNotNone(ctx.version)
+
+    def test_build_produces_trace_entries(self) -> None:
+        # 场景：build() 产生结构化 ContextTraceEntry 列表。
+        profile_mgr = StubProfileManager()
+        repo = StubRepository()
+        builder = ContextBuilder(profile_mgr, repo)
+
+        request = TaskCreateRequest(
+            goal="测试追踪",
+            session_id="s1",
+            source_text="外部材料内容",
+        )
+        ctx = builder.build(request)
+
+        self.assertIsInstance(ctx.trace_entries, list)
+        self.assertGreater(len(ctx.trace_entries), 0)
+        for entry in ctx.trace_entries:
+            self.assertIsInstance(entry, ContextTraceEntry)
+            self.assertTrue(entry.layer)
+            self.assertTrue(entry.source)
+            self.assertTrue(entry.message)
+        # Check that all expected layers are covered
+        layers = {e.layer for e in ctx.trace_entries}
+        expected_layers = {"session_summary", "recent_messages", "condensed_recent_messages",
+                          "profile_facts", "working_memory", "source_summary"}
+        self.assertEqual(layers, expected_layers)
+
+    def test_build_produces_budget_usage(self) -> None:
+        # 场景：build() 产生结构化 ContextBudgetUsage。
+        profile_mgr = StubProfileManager()
+        repo = StubRepository()
+        builder = ContextBuilder(profile_mgr, repo)
+
+        request = TaskCreateRequest(
+            goal="测试预算",
+            source_text="x" * 500,
+        )
+        ctx = builder.build(request)
+
+        self.assertIsInstance(ctx.budget_usage, ContextBudgetUsage)
+        # Verify budget limits match CONTEXT_BUDGET
+        bu = ctx.budget_usage
+        self.assertEqual(bu.session_summary_limit, CONTEXT_BUDGET["session_summary"])
+        self.assertEqual(bu.recent_messages_limit, CONTEXT_BUDGET["recent_messages"])
+        self.assertEqual(bu.profile_facts_limit, CONTEXT_BUDGET["profile_facts"])
+        self.assertEqual(bu.source_summary_limit, CONTEXT_BUDGET["source_summary"])
+        # source_summary was 500 chars but limited to 600
+        self.assertEqual(bu.source_summary_used, 500)
+        # counts should be populated
+        self.assertGreaterEqual(bu.profile_facts_count, 0)
+        self.assertGreaterEqual(bu.recent_messages_count, 0)
+
+    def test_build_trace_entries_capture_session_context(self) -> None:
+        # 场景：有 session_id 时，trace_entries 的 source 指向 session。
+        base_time = datetime(2026, 4, 18, 12, 0, tzinfo=UTC)
+        session = ChatSession(id="s_abc", title="Test", context_summary="摘要文本")
+        messages = [
+            ChatMessage(session_id="s_abc", role=ChatMessageRole.USER, content="用户消息", created_at=base_time),
+        ]
+        profile_mgr = StubProfileManager()
+        repo = StubRepository(session=session, messages=messages)
+        builder = ContextBuilder(profile_mgr, repo)
+
+        request = TaskCreateRequest(goal="测试", session_id="s_abc")
+        ctx = builder.build(request)
+
+        # Find the session_summary trace entry
+        summary_entry = next((e for e in ctx.trace_entries if e.layer == "session_summary"), None)
+        self.assertIsNotNone(summary_entry)
+        self.assertEqual(summary_entry.source, "session")
+        self.assertEqual(summary_entry.source_id, "s_abc")
 
     def test_build_with_session_loads_session_context(self) -> None:
         # 场景：有 session_id 时，从仓库加载会话摘要和最近消息。

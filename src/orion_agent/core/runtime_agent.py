@@ -433,6 +433,9 @@ class AgentService:
         task.context_layers.recalled_memories = [
             self._format_recalled_memory_context(item) for item in task.recalled_memories
         ]
+        if task.context_layers.budget_usage:
+            task.context_layers.budget_usage.recalled_memories_count = len(task.recalled_memories)
+            task.context_layers.budget_usage.profile_facts_count = len(task.profile_hits)
         task.context_layers.profile_facts = [f"{item.label}: {item.value}" for item in task.profile_hits]
         self.memory_manager.write(task, "memory_scope", request.memory_scope)
         self._append_progress(
@@ -1149,6 +1152,20 @@ class AgentService:
             parts.append(f"Source summary:\n{context_layers.source_summary}")
         if context_layers.build_notes:
             parts.append("Context build notes:\n" + "\n".join(f"- {item}" for item in context_layers.build_notes))
+        if context_layers.trace_entries:
+            lines = [
+                f"[{e.layer}] {e.source}: {e.message}"
+                for e in context_layers.trace_entries
+            ]
+            parts.append("Context trace:\n" + "\n".join(f"- {line}" for line in lines))
+        if context_layers.budget_usage:
+            bu = context_layers.budget_usage
+            parts.append(
+                f"Context budget: session_summary={bu.session_summary_used}/{bu.session_summary_limit}, "
+                f"recent_msg={bu.recent_messages_count}/{bu.recent_messages_limit}, "
+                f"profile_facts={bu.profile_facts_count}/{bu.profile_facts_limit}, "
+                f"working_mem={bu.working_memory_count}/{bu.working_memory_limit}"
+            )
         return "\n\n".join(parts).strip()
 
     def _restore_request(self, task: TaskRecord | None) -> TaskCreateRequest | None:
