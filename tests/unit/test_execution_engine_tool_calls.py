@@ -197,8 +197,8 @@ class ExecutionEngineToolMetadataTests(unittest.TestCase):
         finally:
             self.engine.tool_registry._definitions["web_search"] = original_def
 
-    def test_restricted_tool_does_not_proceed_when_existing_approval_is_rejected(self) -> None:
-        """Rejected approval must not be treated as granted approval."""
+    def test_restricted_tool_reopens_pending_approval_after_rejection(self) -> None:
+        """A new blocked attempt should emit PENDING when it creates a fresh approval request."""
         original_def = self.engine.tool_registry._definitions["web_search"]
         restricted_def = ToolDefinition(
             name="web_search",
@@ -233,7 +233,9 @@ class ExecutionEngineToolMetadataTests(unittest.TestCase):
 
             self.assertEqual(ctx.exception.category, FailureCategory.PERMISSION_DENIED)
             self.assertEqual(task.tool_invocations[-1].status, ToolCallStatus.ERROR)
-            self.assertEqual(task.tool_invocations[-1].approval_status, ApprovalStatus.DENIED)
+            self.assertEqual(task.tool_invocations[-1].approval_status, ApprovalStatus.PENDING)
+            self.assertEqual(len(task.pending_approvals), 2)
+            self.assertIsNone(task.pending_approvals[-1].approved)
         finally:
             self.engine.tool_registry._definitions["web_search"] = original_def
 

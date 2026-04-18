@@ -1,3 +1,4 @@
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -593,8 +594,10 @@ class AgentServiceTests(unittest.TestCase):
         self.assertTrue(any(item.stage == "recovery" for item in response.progress_updates))
 
     def test_source_file_requires_confirmation_before_execution(self) -> None:
-        source_file = Path("tests/.tmp_confirmation_source.txt")
-        source_file.write_text("needs approval", encoding="utf-8")
+        handle, temp_path = tempfile.mkstemp(prefix="confirmation-source-", suffix=".txt", dir=".")
+        source_file = Path(temp_path)
+        with open(handle, "w", encoding="utf-8", closefd=True) as stream:
+            stream.write("needs approval")
         try:
             created = self.service.create_and_run_task(
                 TaskCreateRequest(

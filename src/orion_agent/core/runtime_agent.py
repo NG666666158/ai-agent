@@ -105,7 +105,6 @@ class AgentService:
         self.reflector = Reflector(self.llm_client, self.prompts)
         self.evaluator = TaskEvaluator()
         self.recovery_policy = RecoveryPolicy(self.settings)
-        self.recovery_state_machine = RecoveryStateMachine(self.recovery_policy, self.settings)
         self.session_store = SessionStore(
             self.repository,
             self.profile_manager,
@@ -559,6 +558,10 @@ class AgentService:
         self._finalize_task(task, request)
         return task
 
+    def _create_recovery_state_machine(self) -> RecoveryStateMachine:
+        """Create a fresh recovery state machine for a single execution attempt."""
+        return RecoveryStateMachine(self.recovery_policy, self.settings)
+
     def _pause_for_required_approval(self, task: TaskRecord, request: TaskCreateRequest) -> bool:
         if not request.source_path:
             return False
@@ -579,6 +582,7 @@ class AgentService:
         return True
 
     def _run_executor_with_recovery(self, task: TaskRecord, request: TaskCreateRequest) -> TaskRecord:
+        recovery_state_machine = self._create_recovery_state_machine()
         while True:
             try:
                 task = self.executor.run(
@@ -604,7 +608,7 @@ class AgentService:
             # Use RecoveryStateMachine as the primary state driver for the recovery flow.
             # transition() validates the state transition and raises InvalidTransitionError
             # if the transition is illegal (should not happen in normal runtime paths).
-            recovery_state = self.recovery_state_machine.transition(task, task.failure_category)
+            recovery_state = recovery_state_machine.transition(task, task.failure_category)
             resolution = self._classify_failure_resolution(task, task.failure_category)
             self._record_failure_checkpoint(task, resolution)
             self.repository.save(task)
@@ -650,7 +654,7 @@ class AgentService:
             # USER_ACTION is handled at a higher level (pause_for_required_approval or
             # confirm_task_action), and FAILED is terminal — both reach here when
             # the recovery loop cannot continue.
-            self.recovery_state_machine.reset_to_healthy()
+            recovery_state_machine.reset_to_healthy()
             self._finalize_failed_execution(task, resolution)
             self.repository.save(task)
             return task

@@ -92,12 +92,35 @@ class RecoveryStateMachineRuntimeTests(unittest.TestCase):
             failure_message="timeout",
         )
 
-    def test_service_initializes_recovery_state_machine(self) -> None:
-        # AgentService should initialize a RecoveryStateMachine on startup.
+    def test_service_creates_fresh_recovery_state_machine_on_demand(self) -> None:
+        # AgentService should create a fresh RecoveryStateMachine for each execution.
         service = self._make_service()
-        self.assertIsInstance(service.recovery_state_machine, RecoveryStateMachine)
-        self.assertEqual(service.recovery_state_machine.current_state, RecoveryState.HEALTHY)
-        self.assertFalse(service.recovery_state_machine.is_recovering)
+        machine_a = service._create_recovery_state_machine()
+        machine_b = service._create_recovery_state_machine()
+
+        self.assertIsInstance(machine_a, RecoveryStateMachine)
+        self.assertIsInstance(machine_b, RecoveryStateMachine)
+        self.assertIsNot(machine_a, machine_b)
+        self.assertEqual(machine_a.current_state, RecoveryState.HEALTHY)
+        self.assertEqual(machine_b.current_state, RecoveryState.HEALTHY)
+        self.assertFalse(machine_a.is_recovering)
+        self.assertFalse(machine_b.is_recovering)
+
+    def test_fresh_recovery_state_machine_does_not_inherit_previous_state(self) -> None:
+        # A new execution must not inherit recovery state from a previous task.
+        service = self._make_service()
+        task = self._task_with_failed_step(
+            tool_name="web_search",
+            failure_category=FailureCategory.TOOL_TIMEOUT,
+        )
+
+        first_machine = service._create_recovery_state_machine()
+        first_machine.transition(task, FailureCategory.TOOL_TIMEOUT)
+        self.assertEqual(first_machine.current_state, RecoveryState.SKIPPING)
+
+        second_machine = service._create_recovery_state_machine()
+        self.assertEqual(second_machine.current_state, RecoveryState.HEALTHY)
+        self.assertFalse(second_machine.is_recovering)
 
     def test_skip_step_transitions_to_skipping_state(self) -> None:
         # When a web_search step times out with a completed prefix, the state machine
@@ -108,11 +131,12 @@ class RecoveryStateMachineRuntimeTests(unittest.TestCase):
             failure_category=FailureCategory.TOOL_TIMEOUT,
         )
 
-        next_state = service.recovery_state_machine.transition(task, FailureCategory.TOOL_TIMEOUT)
+        machine = service._create_recovery_state_machine()
+        next_state = machine.transition(task, FailureCategory.TOOL_TIMEOUT)
 
         self.assertEqual(next_state, RecoveryState.SKIPPING)
-        self.assertEqual(service.recovery_state_machine.current_state, RecoveryState.SKIPPING)
-        self.assertTrue(service.recovery_state_machine.is_recovering)
+        self.assertEqual(machine.current_state, RecoveryState.SKIPPING)
+        self.assertTrue(machine.is_recovering)
 
     def test_replan_remaining_transitions_to_replanning_remaining(self) -> None:
         # A non-web_search step failure with completed prefix should transition to
@@ -123,10 +147,11 @@ class RecoveryStateMachineRuntimeTests(unittest.TestCase):
             failure_category=FailureCategory.TOOL_TIMEOUT,
         )
 
-        next_state = service.recovery_state_machine.transition(task, FailureCategory.TOOL_TIMEOUT)
+        machine = service._create_recovery_state_machine()
+        next_state = machine.transition(task, FailureCategory.TOOL_TIMEOUT)
 
         self.assertEqual(next_state, RecoveryState.REPLANNING_REMAINING)
-        self.assertEqual(service.recovery_state_machine.current_state, RecoveryState.REPLANNING_REMAINING)
+        self.assertEqual(machine.current_state, RecoveryState.REPLANNING_REMAINING)
 
     def test_failure_at_first_step_transitions_to_replan_full(self) -> None:
         # A failure at the first step (no completed prefix) should transition to
@@ -166,10 +191,11 @@ class RecoveryStateMachineRuntimeTests(unittest.TestCase):
             failure_message="tool error",
         )
 
-        next_state = service.recovery_state_machine.transition(task, FailureCategory.TOOL_TIMEOUT)
+        machine = service._create_recovery_state_machine()
+        next_state = machine.transition(task, FailureCategory.TOOL_TIMEOUT)
 
         self.assertEqual(next_state, RecoveryState.REPLANNING_FULL)
-        self.assertEqual(service.recovery_state_machine.current_state, RecoveryState.REPLANNING_FULL)
+        self.assertEqual(machine.current_state, RecoveryState.REPLANNING_FULL)
 
     def test_internal_error_transitions_to_retrying(self) -> None:
         # Internal errors should transition to RETRYING.
@@ -179,10 +205,11 @@ class RecoveryStateMachineRuntimeTests(unittest.TestCase):
             failure_category=FailureCategory.INTERNAL_ERROR,
         )
 
-        next_state = service.recovery_state_machine.transition(task, FailureCategory.INTERNAL_ERROR)
+        machine = service._create_recovery_state_machine()
+        next_state = machine.transition(task, FailureCategory.INTERNAL_ERROR)
 
         self.assertEqual(next_state, RecoveryState.RETRYING)
-        self.assertEqual(service.recovery_state_machine.current_state, RecoveryState.RETRYING)
+        self.assertEqual(machine.current_state, RecoveryState.RETRYING)
 
     def test_permission_denied_transitions_to_user_action(self) -> None:
         # Permission denied should transition to USER_ACTION.
@@ -192,10 +219,11 @@ class RecoveryStateMachineRuntimeTests(unittest.TestCase):
             failure_category=FailureCategory.PERMISSION_DENIED,
         )
 
-        next_state = service.recovery_state_machine.transition(task, FailureCategory.PERMISSION_DENIED)
+        machine = service._create_recovery_state_machine()
+        next_state = machine.transition(task, FailureCategory.PERMISSION_DENIED)
 
         self.assertEqual(next_state, RecoveryState.USER_ACTION)
-        self.assertEqual(service.recovery_state_machine.current_state, RecoveryState.USER_ACTION)
+        self.assertEqual(machine.current_state, RecoveryState.USER_ACTION)
 
     def test_skipping_state_drives_skip_logic(self) -> None:
         # The SKIPPING state should drive _prepare_skip_failed_step.
@@ -204,7 +232,8 @@ class RecoveryStateMachineRuntimeTests(unittest.TestCase):
             tool_name="web_search",
             failure_category=FailureCategory.TOOL_TIMEOUT,
         )
-        service.recovery_state_machine.transition(task, FailureCategory.TOOL_TIMEOUT)
+        machine = service._create_recovery_state_machine()
+        machine.transition(task, FailureCategory.TOOL_TIMEOUT)
 
         service._prepare_skip_failed_step(task)
 
@@ -218,7 +247,8 @@ class RecoveryStateMachineRuntimeTests(unittest.TestCase):
             tool_name="some_tool",
             failure_category=FailureCategory.INTERNAL_ERROR,
         )
-        service.recovery_state_machine.transition(task, FailureCategory.INTERNAL_ERROR)
+        machine = service._create_recovery_state_machine()
+        machine.transition(task, FailureCategory.INTERNAL_ERROR)
 
         service._prepare_current_step_retry(task)
 
@@ -233,7 +263,8 @@ class RecoveryStateMachineRuntimeTests(unittest.TestCase):
             tool_name="custom_tool",
             failure_category=FailureCategory.TOOL_TIMEOUT,
         )
-        service.recovery_state_machine.transition(task, FailureCategory.TOOL_TIMEOUT)
+        machine = service._create_recovery_state_machine()
+        machine.transition(task, FailureCategory.TOOL_TIMEOUT)
 
         from orion_agent.core.llm_runtime import FallbackLLMClient
         from orion_agent.core.models import TaskCreateRequest
@@ -288,7 +319,8 @@ class RecoveryStateMachineRuntimeTests(unittest.TestCase):
             failure_category=FailureCategory.TOOL_TIMEOUT,
             failure_message="tool error",
         )
-        service.recovery_state_machine.transition(task, FailureCategory.TOOL_TIMEOUT)
+        machine = service._create_recovery_state_machine()
+        machine.transition(task, FailureCategory.TOOL_TIMEOUT)
 
         service._prepare_replan_from_failure(
             task,
@@ -316,10 +348,11 @@ class RecoveryStateMachineRuntimeTests(unittest.TestCase):
         )
         task.checkpoint.recovery_attempt = 1  # exhausted
 
-        next_state = service.recovery_state_machine.transition(task, FailureCategory.INTERNAL_ERROR)
+        machine = service._create_recovery_state_machine()
+        next_state = machine.transition(task, FailureCategory.INTERNAL_ERROR)
 
         self.assertEqual(next_state, RecoveryState.REPLANNING_FULL)
-        self.assertEqual(service.recovery_state_machine.current_state, RecoveryState.REPLANNING_FULL)
+        self.assertEqual(machine.current_state, RecoveryState.REPLANNING_FULL)
 
     def test_state_machine_reset_to_healthy_after_recovery(self) -> None:
         # After a successful recovery action, the state machine should be reset to HEALTHY.
@@ -328,25 +361,27 @@ class RecoveryStateMachineRuntimeTests(unittest.TestCase):
             tool_name="web_search",
             failure_category=FailureCategory.TOOL_TIMEOUT,
         )
-        service.recovery_state_machine.transition(task, FailureCategory.TOOL_TIMEOUT)
-        self.assertEqual(service.recovery_state_machine.current_state, RecoveryState.SKIPPING)
+        machine = service._create_recovery_state_machine()
+        machine.transition(task, FailureCategory.TOOL_TIMEOUT)
+        self.assertEqual(machine.current_state, RecoveryState.SKIPPING)
 
-        service.recovery_state_machine.reset_to_healthy()
+        machine.reset_to_healthy()
 
-        self.assertEqual(service.recovery_state_machine.current_state, RecoveryState.HEALTHY)
-        self.assertFalse(service.recovery_state_machine.is_recovering)
+        self.assertEqual(machine.current_state, RecoveryState.HEALTHY)
+        self.assertFalse(machine.is_recovering)
 
     def test_state_description_reflects_current_recovery_state(self) -> None:
         # state_description() should return Chinese text matching the current state.
         service = self._make_service()
-        self.assertEqual(service.recovery_state_machine.state_description(), "正常运行，无恢复进行中")
+        machine = service._create_recovery_state_machine()
+        self.assertEqual(machine.state_description(), "正常运行，无恢复进行中")
 
         task = self._task_with_failed_step(
             tool_name="web_search",
             failure_category=FailureCategory.TOOL_TIMEOUT,
         )
-        service.recovery_state_machine.transition(task, FailureCategory.TOOL_TIMEOUT)
-        self.assertEqual(service.recovery_state_machine.state_description(), "正在跳过失败步骤并继续执行")
+        machine.transition(task, FailureCategory.TOOL_TIMEOUT)
+        self.assertEqual(machine.state_description(), "正在跳过失败步骤并继续执行")
 
     def test_mark_task_for_replan_records_recovery_attempts(self) -> None:
         # _mark_task_for_replan should record the current recovery_attempt from checkpoint.

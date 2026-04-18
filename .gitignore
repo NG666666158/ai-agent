@@ -19,3 +19,4 @@ uvicorn_stdout.log
 uvicorn_stderr.log
 uvicorn_online_stdout.log
 uvicorn_online_stderr.log
+.omc/

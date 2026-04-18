@@ -458,10 +458,9 @@ class ExecutionEngine:
                         permission_level=definition.permission_level,
                         timeout_ms=definition.effective_timeout_ms,
                         approval_required=True,
-                        approval_status=ApprovalStatus.PENDING if not any(
-                            approval.tool_name == tool_name and approval.approved is False
-                            for approval in task.pending_approvals
-                        ) else ApprovalStatus.DENIED,
+                        # This blocked call always leaves the task waiting on user input:
+                        # either an approval is already open, or we create one below.
+                        approval_status=ApprovalStatus.PENDING,
                         enforcement_result=EnforcementResult.BLOCKED,
                     )
                 )
