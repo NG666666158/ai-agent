@@ -210,3 +210,11 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_profile_and_memory tests.unit.test_session_store ✓ (97 tests)；PYTHONPATH=src python -m unittest tests.unit.test_citation_map tests.unit.test_citation_runtime tests.unit.test_execution_engine_tool_calls ✓ (30 tests)；npm run build --prefix frontend ✓
 - 学到：ReplanEvent 的 recovery_attempts 字段在创建恢复事件时填充，用于追踪恢复尝试次数；CitationSource 和 ReplanEvent ID 格式一致（cite_/replan_前缀 + 8位十六进制），保证追踪链路可串联。
 ---
+
+## 2026-04-18 08:00 - US-R15
+- 已将 RecoveryStateMachine 接入 runtime_agent 主恢复流程：AgentService 新增 recovery_state_machine 字段；_run_executor_with_recovery 主循环使用 state_machine.transition() 驱动恢复状态转换（RETRYING/SKIPPING/REPLANNING_REMAINING/REPLANNING_FULL），resolution 分类保留用于 checkpoint 记录；RETRYING 耗尽重试预算时由 state_machine 内部升级为 REPLANNING_FULL；USER_ACTION 和 FAILED 在恢复循环无法继续时通过 reset_to_healthy 后进入 _finalize_failed_execution；原有 _prepare_* 方法保持不变以维持向后兼容。
+- 修改文件：src/orion_agent/core/runtime_agent.py（导入 RecoveryStateMachine，新增 recovery_state_machine，refactor _run_executor_with_recovery）
+- 新增文件：tests/unit/test_recovery_state_machine_runtime.py（15 个单元测试覆盖各恢复路径的状态机驱动）
+- 质量检查：PYTHONPATH=src python -m unittest 146 tests ✓；PYTHONPATH=src python -m unittest 30 citation/execution_engine tests ✓
+- 学到：RecoveryStateMachine.transition() 内部已调用 policy.classify_failure_resolution，无需在主循环中重复调用；状态机将恢复状态作为主驱动（recovery_state），而 FailureResolution 仅用于记录和分支条件；reset_to_healthy 在进入终态失败前调用，确保状态机不会卡在非 HEALTHY 状态。
+---

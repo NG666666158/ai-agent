@@ -9,7 +9,7 @@ from pathlib import Path
 from orion_agent.core.citation_map import CitationMap
 from orion_agent.core.config import Settings, get_settings
 from orion_agent.core.context_builder import ContextBuilder
-from orion_agent.core.recovery_policy import RecoveryPolicy
+from orion_agent.core.recovery_policy import RecoveryPolicy, RecoveryState, RecoveryStateMachine
 from orion_agent.core.embedding_runtime import build_embedder
 from orion_agent.core.evaluation import EvaluationResult, TaskEvaluator
 from orion_agent.core.execution_engine import ExecutionEngine
@@ -103,6 +103,7 @@ class AgentService:
         self.reflector = Reflector(self.llm_client, self.prompts)
         self.evaluator = TaskEvaluator()
         self.recovery_policy = RecoveryPolicy(self.settings)
+        self.recovery_state_machine = RecoveryStateMachine(self.recovery_policy, self.settings)
         self.session_store = SessionStore(
             self.repository,
             self.profile_manager,
@@ -583,11 +584,15 @@ class AgentService:
                 self.repository.save(task)
                 return task
 
+            # Use RecoveryStateMachine as the primary state driver for the recovery flow.
+            # transition() validates the state transition and raises InvalidTransitionError
+            # if the transition is illegal (should not happen in normal runtime paths).
+            recovery_state = self.recovery_state_machine.transition(task, task.failure_category)
             resolution = self._classify_failure_resolution(task, task.failure_category)
             self._record_failure_checkpoint(task, resolution)
             self.repository.save(task)
 
-            if resolution == FailureResolution.RETRY_CURRENT_STEP and task.checkpoint.recovery_attempt < self.settings.execution_recovery_retries:
+            if recovery_state == RecoveryState.RETRYING:
                 task.checkpoint.recovery_attempt += 1
                 self._append_progress(
                     task,
@@ -601,7 +606,7 @@ class AgentService:
                 self.repository.save(task)
                 continue
 
-            if resolution == FailureResolution.SKIP_FAILED_STEP:
+            if recovery_state == RecoveryState.SKIPPING:
                 task.checkpoint.recovery_attempt += 1
                 self._prepare_skip_failed_step(task)
                 task.failure_category = FailureCategory.NONE
@@ -609,7 +614,7 @@ class AgentService:
                 self.repository.save(task)
                 continue
 
-            if resolution == FailureResolution.REPLAN_REMAINING_STEPS and task.replan_count < self.settings.replan_limit:
+            if recovery_state == RecoveryState.REPLANNING_REMAINING and task.replan_count < self.settings.replan_limit:
                 task.checkpoint.recovery_attempt += 1
                 self._prepare_replan_remaining_steps(task, request)
                 task.failure_category = FailureCategory.NONE
@@ -617,7 +622,7 @@ class AgentService:
                 self.repository.save(task)
                 continue
 
-            if resolution == FailureResolution.REPLAN_FROM_CHECKPOINT and task.replan_count < self.settings.replan_limit:
+            if recovery_state == RecoveryState.REPLANNING_FULL and task.replan_count < self.settings.replan_limit:
                 task.checkpoint.recovery_attempt += 1
                 self._prepare_replan_from_failure(task, request)
                 task.failure_category = FailureCategory.NONE
@@ -625,6 +630,10 @@ class AgentService:
                 self.repository.save(task)
                 continue
 
+            # USER_ACTION is handled at a higher level (pause_for_required_approval or
+            # confirm_task_action), and FAILED is terminal — both reach here when
+            # the recovery loop cannot continue.
+            self.recovery_state_machine.reset_to_healthy()
             self._finalize_failed_execution(task, resolution)
             self.repository.save(task)
             return task
