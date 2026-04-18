@@ -134,6 +134,43 @@ class ProfileAndMemoryTests(unittest.TestCase):
         self.assertEqual(fact.accessed_count, 0)
         self.assertIsNone(fact.last_accessed_at)
 
+    def test_recall_does_not_persist_query_specific_retrieval_metadata(self) -> None:
+        # 场景：retrieval_score / retrieval_reason / retrieval_channels 属于查询期临时字段，不应写回长期存储。
+        record = LongTermMemoryRecord(
+            topic="检索污染测试",
+            summary="用于验证召回元数据不落库",
+            details="这是一次记忆检索污染回归测试。",
+            memory_type="fact",
+        )
+        saved = self.memory_manager.remember(record)
+
+        recalled = self.memory_manager.recall("检索污染测试", scope="default", limit=5)
+        self.assertIsNotNone(recalled[0].retrieval_score)
+        self.assertTrue(recalled[0].retrieval_reason)
+        self.assertTrue(recalled[0].retrieval_channels)
+
+        persisted = self.repository.get_long_term_memory(saved.id)
+        self.assertIsNone(persisted.retrieval_score)
+        self.assertIsNone(persisted.retrieval_reason)
+        self.assertEqual(persisted.retrieval_channels, [])
+
+    def test_recall_fallback_also_updates_access_metadata(self) -> None:
+        # 场景：recent fallback 分支也应更新访问治理元数据，不能绕开访问计数。
+        record = LongTermMemoryRecord(
+            topic="最近记忆",
+            summary="最近回退召回",
+            details="触发 fallback 路径的测试内容",
+            memory_type="fact",
+        )
+        saved = self.memory_manager.remember(record)
+
+        recalled = self.memory_manager.recall("完全不相关的稀有查询", scope="default", limit=5)
+        self.assertTrue(recalled)
+
+        persisted = self.repository.get_long_term_memory(saved.id)
+        self.assertGreaterEqual(persisted.accessed_count, 1)
+        self.assertIsNotNone(persisted.last_accessed_at)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -174,11 +174,16 @@ class TaskRepository:
         with self._lock:
             with self._connect() as conn:
                 rows = conn.execute(
-                    "SELECT payload FROM chat_sessions ORDER BY updated_at DESC LIMIT ?",
-                    (limit * 3,),
+                    """
+                    SELECT payload
+                    FROM chat_sessions
+                    WHERE json_extract(payload, '$.source_session_id') = ?
+                    ORDER BY updated_at DESC
+                    LIMIT ?
+                    """,
+                    (source_session_id, limit),
                 ).fetchall()
-        sessions = [ChatSession.model_validate_json(row[0]) for row in rows]
-        return [item for item in sessions if item.source_session_id == source_session_id][:limit]
+        return [ChatSession.model_validate_json(row[0]) for row in rows]
 
     def save_session_message(self, message: ChatMessage) -> ChatMessage:
         payload = message.model_dump_json()

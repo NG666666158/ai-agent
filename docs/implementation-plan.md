@@ -1,5 +1,7 @@
 # Orion Agent 当前实施计划
 
+> 状态说明：本文档属于历史阶段实施计划，保留作为演进记录参考。当前统一基线请优先参考 [document-system.md](C:/github/ai-agent/ai-agent/docs/document-system.md)、[current-progress-baseline.md](C:/github/ai-agent/ai-agent/docs/current-progress-baseline.md) 和 [next-development-checklist.md](C:/github/ai-agent/ai-agent/docs/next-development-checklist.md)。
+
 ## 目标
 
 基于当前已经具备的任务执行、会话管理、长期记忆和用户画像能力，把项目从“可运行原型”推进到“可维护、可治理、可继续产品化”的原型平台。

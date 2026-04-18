@@ -1,5 +1,7 @@
 # Orion Agent 连续开发清单
 
+> 状态说明：本文档属于历史阶段的 story 映射清单，保留作为执行记录参考。当前统一开发顺序请以 [next-development-checklist.md](C:/github/ai-agent/ai-agent/docs/next-development-checklist.md) 为准。
+
 本文档将 [tasks/prd-orion-agent-enterprise-evolution.md](/C:/github/ai-agent/ai-agent/tasks/prd-orion-agent-enterprise-evolution.md) 与 [tasks/prd-orion-agent-enterprise-evolution.json](/C:/github/ai-agent/ai-agent/tasks/prd-orion-agent-enterprise-evolution.json) 中的 stories 映射为可连续执行的开发清单，方便人工开发、AI 辅助开发或 Ralph 风格的逐 story 执行。
 
 ## 一、执行原则

@@ -25,7 +25,7 @@ from orion_agent.core.models import (
 
 class ExecutionNodeTests(unittest.TestCase):
     def test_build_execution_nodes_v2_generates_unified_timeline(self) -> None:
-        # 场景：统一执行主链路需要覆盖解析、召回、步骤、工具、恢复、回答生成和复核节点。
+        # 场景：统一执行时间线需要覆盖解析、召回、步骤、工具、恢复、回答生成和结果复核节点。
         base_time = datetime(2026, 4, 17, 12, 0, tzinfo=UTC)
         record = TaskRecord(
             title="请总结当前项目架构并给出优化建议",
@@ -48,7 +48,7 @@ class ExecutionNodeTests(unittest.TestCase):
             recalled_memories=[
                 LongTermMemoryRecord(
                     topic="用户偏好",
-                    summary="用户偏好中文回答，强调项目可追溯能力。",
+                    summary="用户偏好中文回答，并强调项目可追溯能力。",
                     details="用户多次要求中文界面与可视化执行链路。",
                     memory_type="profile_preference",
                     retrieval_score=0.92,
@@ -123,7 +123,7 @@ class ExecutionNodeTests(unittest.TestCase):
         self.assertIn("review", [node.kind for node in nodes])
 
         query_node = next(node for node in nodes if node.kind == "query_rewrite")
-        self.assertEqual(query_node.title, "Query 改写与任务标准化")
+        self.assertEqual(query_node.title, "输入解析与任务标准化")
         self.assertEqual(query_node.artifacts[0].label, "原始输入")
 
         tool_node = next(node for node in nodes if node.kind == "tool")

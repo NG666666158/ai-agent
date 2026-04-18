@@ -11,6 +11,7 @@ from orion_agent.core.models import (
     FailureCategory,
     LongTermMemoryRecord,
     ParsedGoal,
+    PendingApproval,
     Step,
     StepStatus,
     TaskCreateRequest,
@@ -55,7 +56,14 @@ class ExecutionEngine:
         if on_progress is not None:
             on_progress("preparing", "正在准备执行上下文。", "整理源材料、步骤状态和工具运行环境。")
 
-        source_material = self._resolve_source_material(task, request)
+        try:
+            source_material = self._resolve_source_material(task, request)
+        except ToolExecutionError as exc:
+            self._apply_tool_exception(task, exc, on_progress=on_progress)
+            if on_task_update is not None:
+                on_task_update(task)
+            return task
+
         task.context_layers.source_summary = source_material or task.context_layers.source_summary
         if on_task_update is not None:
             on_task_update(task)
@@ -75,60 +83,67 @@ class ExecutionEngine:
             if on_progress is not None:
                 on_progress("step_started", f"正在执行步骤：{self._localize_step_name(step.name, step.tool_name)}", step.description)
 
-            if step.name == "Parse Task":
-                if on_progress is not None:
-                    on_progress("step_detail", "正在解析任务目标。", "提取目标、输出形式和优先级。")
-                step.output = self._describe_goal(parsed_goal)
-                self.memory_manager.write(task, "parsed_goal", step.output)
-            elif step.name == "Recall Memory":
-                if on_progress is not None:
-                    on_progress("step_detail", "正在整理召回记忆。", "把历史经验转换为可参考摘要。")
-                step.output = self._format_recalled_memories(recalled_memories)
-                self.memory_manager.write(task, "recalled_memories", step.output)
-            elif step.tool_name == "read_local_file":
-                transition_task(task, TaskStatus.WAITING_TOOL)
-                if on_task_update is not None:
-                    on_task_update(task)
-                if on_progress is not None:
-                    on_progress("tool", "正在读取参考材料。", "从本地输入中提取后续执行所需内容。")
-                step.output = source_material or "未提供参考材料。"
-                transition_task(task, TaskStatus.RUNNING)
-                self.memory_manager.write(task, "source_material", step.output)
-            elif step.tool_name == "web_search":
-                transition_task(task, TaskStatus.WAITING_TOOL)
-                if on_task_update is not None:
-                    on_task_update(task)
-                if on_progress is not None:
-                    on_progress("tool", "正在联网检索。", "收集与当前任务相关的外部信息。")
-                step.output = self._call_tool(task=task, step_id=step.id, tool_name="web_search", query=parsed_goal.goal)
-                transition_task(task, TaskStatus.RUNNING)
-                self.memory_manager.write(task, "web_results", step.output)
-                if task.failure_category != FailureCategory.NONE and on_progress is not None:
-                    on_progress("tool_failed", "联网检索失败，等待恢复策略。", task.failure_message)
-            elif step.name == "Create Plan":
-                if on_progress is not None:
-                    on_progress("planning", "正在整理执行步骤。", "汇总已知信息并形成可执行方案。")
-                step.output = self._summarize_plan(task, source_material)
-                self.memory_manager.write(task, "execution_plan", step.output)
-            elif step.tool_name == "generate_markdown":
-                transition_task(task, TaskStatus.WAITING_TOOL)
-                if on_task_update is not None:
-                    on_task_update(task)
-                step.output = self._generate_deliverable(
-                    task,
-                    parsed_goal,
-                    request,
-                    recalled_memories,
-                    on_progress=on_progress,
-                    on_result_stream=on_result_stream,
-                )
-                transition_task(task, TaskStatus.RUNNING)
-            elif step.name == "Review Output":
-                if on_progress is not None:
-                    on_progress("review", "正在检查结果完整性。", "确认输出结构、内容覆盖和表达质量。")
-                step.output = "已进入结果复核阶段，准备生成最终评估。"
-            else:
-                step.output = "步骤已完成。"
+            try:
+                if step.name == "Parse Task":
+                    if on_progress is not None:
+                        on_progress("step_detail", "正在解析任务目标。", "提取目标、输出形式和优先级。")
+                    step.output = self._describe_goal(parsed_goal)
+                    self.memory_manager.write(task, "parsed_goal", step.output)
+                elif step.name == "Recall Memory":
+                    if on_progress is not None:
+                        on_progress("step_detail", "正在整理召回记忆。", "把历史经验转换为可参考摘要。")
+                    step.output = self._format_recalled_memories(recalled_memories)
+                    self.memory_manager.write(task, "recalled_memories", step.output)
+                elif step.tool_name == "read_local_file":
+                    transition_task(task, TaskStatus.WAITING_TOOL)
+                    if on_task_update is not None:
+                        on_task_update(task)
+                    if on_progress is not None:
+                        on_progress("tool", "正在读取参考材料。", "从本地输入中提取后续执行所需内容。")
+                    step.output = source_material or "未提供参考材料。"
+                    if task.status != TaskStatus.WAITING_APPROVAL:
+                        transition_task(task, TaskStatus.RUNNING)
+                    self.memory_manager.write(task, "source_material", step.output)
+                elif step.tool_name == "web_search":
+                    transition_task(task, TaskStatus.WAITING_TOOL)
+                    if on_task_update is not None:
+                        on_task_update(task)
+                    if on_progress is not None:
+                        on_progress("tool", "正在联网检索。", "收集与当前任务相关的外部信息。")
+                    step.output = self._call_tool(task=task, step_id=step.id, tool_name="web_search", query=parsed_goal.goal)
+                    if task.status != TaskStatus.WAITING_APPROVAL:
+                        transition_task(task, TaskStatus.RUNNING)
+                    self.memory_manager.write(task, "web_results", step.output)
+                    if task.failure_category != FailureCategory.NONE and on_progress is not None:
+                        on_progress("tool_failed", "联网检索失败，等待恢复策略。", task.failure_message)
+                elif step.name == "Create Plan":
+                    if on_progress is not None:
+                        on_progress("planning", "正在整理执行步骤。", "汇总已知信息并形成可执行方案。")
+                    step.output = self._summarize_plan(task, source_material)
+                    self.memory_manager.write(task, "execution_plan", step.output)
+                elif step.tool_name == "generate_markdown":
+                    transition_task(task, TaskStatus.WAITING_TOOL)
+                    if on_task_update is not None:
+                        on_task_update(task)
+                    step.output = self._generate_deliverable(
+                        task,
+                        parsed_goal,
+                        request,
+                        recalled_memories,
+                        on_progress=on_progress,
+                        on_result_stream=on_result_stream,
+                    )
+                    if task.status != TaskStatus.WAITING_APPROVAL:
+                        transition_task(task, TaskStatus.RUNNING)
+                elif step.name == "Review Output":
+                    if on_progress is not None:
+                        on_progress("review", "正在检查结果完整性。", "确认输出结构、内容覆盖和表达质量。")
+                    step.output = "已进入结果复核阶段，准备生成最终评估。"
+                else:
+                    step.output = "步骤已完成。"
+            except ToolExecutionError as exc:
+                self._apply_tool_exception(task, exc, on_progress=on_progress)
+                step.output = str(exc)
 
             if task.failure_category != FailureCategory.NONE and step.status == StepStatus.DOING:
                 step.status = StepStatus.ERROR
@@ -199,7 +214,6 @@ class ExecutionEngine:
         return task
 
     def _localize_step_name(self, step_name: str, tool_name: str | None = None) -> str:
-        # Prefer tool metadata over hardcoded mapping (single source of truth)
         if tool_name:
             try:
                 definition = self.tool_registry.get_definition(tool_name)
@@ -292,13 +306,6 @@ class ExecutionEngine:
         if on_progress is not None:
             on_progress("writing", "正在整理 Markdown 结构。", "补充标题、工具调用摘要和来源信息。")
 
-        sections = [
-            {"heading": "回答正文", "content": draft},
-            {"heading": "工具调用", "content": self._serialize_tool_invocations(task)},
-        ]
-        if request.source_path:
-            sections.append({"heading": "来源文件", "content": request.source_path})
-
         result = self._compose_deliverable_markdown(
             task=task,
             title=parsed_goal.deliverable_title,
@@ -369,10 +376,9 @@ class ExecutionEngine:
         source_path: str | None,
     ) -> str:
         step_id = next(step.id for step in task.steps if step.tool_name == "generate_markdown")
-        tool_invocations = self._serialize_tool_invocations(task)
         sections = [
             {"heading": "回答正文", "content": draft},
-            {"heading": "工具调用", "content": tool_invocations},
+            {"heading": "工具调用", "content": self._serialize_tool_invocations(task)},
         ]
         if source_path:
             sections.append({"heading": "来源文件", "content": source_path})
@@ -426,16 +432,16 @@ class ExecutionEngine:
     def _call_tool(self, task: TaskRecord, step_id: str, tool_name: str, **kwargs: Any) -> str:
         definition = self.tool_registry.get_definition(tool_name)
 
-        # Enforce permission level: RESTRICTED tools require prior approval
         if definition.permission_level == ToolPermission.RESTRICTED:
-            # Check if this tool already has a final (non-pending) approval
-            existing_final_approval = any(
-                approval.tool_name == tool_name and approval.approved is not None
+            has_granted_approval = any(
+                approval.tool_name == tool_name and approval.approved is True
                 for approval in task.pending_approvals
             )
-            if not existing_final_approval:
-                from orion_agent.core.models import PendingApproval
-
+            has_open_approval = any(
+                approval.tool_name == tool_name and approval.approved is None
+                for approval in task.pending_approvals
+            )
+            if not has_granted_approval:
                 task.tool_invocations.append(
                     ToolInvocation(
                         step_id=step_id,
@@ -451,16 +457,17 @@ class ExecutionEngine:
                         timeout_ms=definition.effective_timeout_ms,
                     )
                 )
-                task.pending_approvals.append(
-                    PendingApproval(
-                        tool_name=tool_name,
-                        operation=definition.display_name or tool_name,
-                        message=f"操作「{definition.display_name or tool_name}」需要确认。",
-                        risk_note=definition.description,
-                        permission_level=ToolPermission.RESTRICTED,
-                        input_payload=kwargs,
+                if not has_open_approval:
+                    task.pending_approvals.append(
+                        PendingApproval(
+                            tool_name=tool_name,
+                            operation=definition.display_name or tool_name,
+                            message=f"操作「{definition.display_name or tool_name}」需要确认。",
+                            risk_note=definition.description,
+                            permission_level=ToolPermission.RESTRICTED,
+                            input_payload=kwargs,
+                        )
                     )
-                )
                 raise ToolExecutionError(
                     f"Tool {tool_name} requires user approval.",
                     category=FailureCategory.PERMISSION_DENIED,
@@ -477,9 +484,11 @@ class ExecutionEngine:
 
         def _make_invocation(
             status: ToolCallStatus,
+            *,
             error: str | None = None,
             attempt: int = 1,
             output_preview: str | None = None,
+            failure_category: FailureCategory,
         ) -> ToolInvocation:
             return ToolInvocation(
                 step_id=step_id,
@@ -488,7 +497,7 @@ class ExecutionEngine:
                 input_payload=kwargs,
                 output_preview=output_preview,
                 error=error,
-                failure_category=last_category,
+                failure_category=failure_category,
                 attempt_count=attempt,
                 category=definition.category,
                 display_name=definition.display_name,
@@ -501,7 +510,12 @@ class ExecutionEngine:
             try:
                 output = self.tool_registry.invoke(tool_name, timeout_ms=timeout_ms, **kwargs)
                 task.tool_invocations.append(
-                    _make_invocation(ToolCallStatus.SUCCESS, attempt=attempt, output_preview=output[:240])
+                    _make_invocation(
+                        ToolCallStatus.SUCCESS,
+                        attempt=attempt,
+                        output_preview=output[:240],
+                        failure_category=FailureCategory.NONE,
+                    )
                 )
                 task.failure_category = FailureCategory.NONE
                 task.failure_message = None
@@ -510,20 +524,55 @@ class ExecutionEngine:
                 last_error = str(exc)
                 last_category = exc.category
                 task.tool_invocations.append(
-                    _make_invocation(ToolCallStatus.ERROR, error=last_error, attempt=attempt)
+                    _make_invocation(
+                        ToolCallStatus.ERROR,
+                        error=last_error,
+                        attempt=attempt,
+                        failure_category=last_category,
+                    )
                 )
                 if exc.retryable and attempt < attempts_allowed:
                     task.retry_count += 1
                     continue
+                if exc.category == FailureCategory.PERMISSION_DENIED:
+                    raise
                 break
             except Exception as exc:
                 last_error = str(exc)
                 last_category = FailureCategory.INTERNAL_ERROR
                 task.tool_invocations.append(
-                    _make_invocation(ToolCallStatus.ERROR, error=last_error, attempt=attempt)
+                    _make_invocation(
+                        ToolCallStatus.ERROR,
+                        error=last_error,
+                        attempt=attempt,
+                        failure_category=last_category,
+                    )
                 )
                 break
 
         task.failure_category = last_category
         task.failure_message = last_error
         return f"Tool {tool_name} failed [{last_category.value}]: {last_error}"
+
+    def _apply_tool_exception(
+        self,
+        task: TaskRecord,
+        exc: ToolExecutionError,
+        *,
+        on_progress: Callable[[str, str, str | None], None] | None = None,
+    ) -> None:
+        task.failure_category = exc.category
+        task.failure_message = str(exc)
+
+        if exc.category == FailureCategory.PERMISSION_DENIED:
+            transition_task(task, TaskStatus.WAITING_APPROVAL)
+            if on_progress is not None:
+                latest_pending = next(
+                    (item for item in reversed(task.pending_approvals) if item.approved is None),
+                    None,
+                )
+                on_progress(
+                    "approval",
+                    "等待用户确认高风险操作。",
+                    latest_pending.message if latest_pending is not None else str(exc),
+                )

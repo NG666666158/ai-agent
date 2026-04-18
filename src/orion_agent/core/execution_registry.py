@@ -1,7 +1,7 @@
-"""ExecutionRegistry for Orion Agent.
+"""Execution stage registry for Orion Agent.
 
-Provides a centralized registry of execution stage metadata so that
-execution definitions are shared across runtime, recovery, and UI rendering.
+Centralizes stage metadata so runtime recovery, execution timeline rendering,
+and frontend labels share one source of truth.
 """
 
 from __future__ import annotations
@@ -15,63 +15,83 @@ class ExecutionStage:
 
     kind: str
     title: str
-    short_label: str  # Chinese display label for frontend
+    short_label: str
+    category: str
+    sort_order: int
+    supports_artifacts: bool = True
 
 
-# Registry of all known execution stages.
-# - kind: the canonical stage identifier used in ExecutionNode.kind
-# - title: full descriptive title (used in ExecutionNode.title)
-# - short_label: brief Chinese label for UI display
 EXECUTION_STAGES: dict[str, ExecutionStage] = {
     "query_rewrite": ExecutionStage(
         kind="query_rewrite",
-        title="Query 改写与任务标准化",
-        short_label="Query 改写",
+        title="输入解析与任务标准化",
+        short_label="任务解析",
+        category="reasoning",
+        sort_order=10,
     ),
     "prompt_assembly": ExecutionStage(
         kind="prompt_assembly",
-        title="上下文分层与 Prompt 拼接",
-        short_label="Prompt 拼接",
+        title="上下文分层与提示词拼接",
+        short_label="上下文组装",
+        category="reasoning",
+        sort_order=20,
     ),
     "vector_retrieval": ExecutionStage(
         kind="vector_retrieval",
         title="向量检索与语义召回",
-        short_label="向量检索",
+        short_label="向量召回",
+        category="retrieval",
+        sort_order=30,
     ),
     "multi_recall": ExecutionStage(
         kind="multi_recall",
         title="多路召回与来源整合",
         short_label="多路召回",
+        category="retrieval",
+        sort_order=40,
     ),
     "progress": ExecutionStage(
         kind="progress",
         title="系统进度",
         short_label="系统进度",
+        category="runtime",
+        sort_order=50,
+        supports_artifacts=False,
     ),
     "step": ExecutionStage(
         kind="step",
         title="执行步骤",
         short_label="执行步骤",
+        category="runtime",
+        sort_order=60,
     ),
     "tool": ExecutionStage(
         kind="tool",
         title="工具调用",
         short_label="工具调用",
+        category="runtime",
+        sort_order=70,
     ),
     "recovery": ExecutionStage(
         kind="recovery",
         title="恢复与重规划",
         short_label="恢复与重规划",
+        category="recovery",
+        sort_order=80,
     ),
     "answer_generation": ExecutionStage(
         kind="answer_generation",
-        title="最终回答生成",
+        title="回答生成",
         short_label="回答生成",
+        category="output",
+        sort_order=90,
     ),
     "review": ExecutionStage(
         kind="review",
         title="结果复核",
         short_label="结果复核",
+        category="output",
+        sort_order=100,
     ),
 }
 
@@ -82,12 +102,24 @@ def get_stage(kind: str) -> ExecutionStage | None:
 
 
 def stage_title(kind: str, default: str | None = None) -> str:
-    """Return the title for a stage kind, or default if not found."""
-    stage = EXECUTION_STAGES.get(kind)
+    """Return the title for a stage kind, or a default when missing."""
+    stage = get_stage(kind)
     return stage.title if stage else (default or kind)
 
 
 def stage_short_label(kind: str, default: str | None = None) -> str:
-    """Return the short Chinese label for a stage kind, or default if not found."""
-    stage = EXECUTION_STAGES.get(kind)
+    """Return the short UI label for a stage kind, or a default when missing."""
+    stage = get_stage(kind)
     return stage.short_label if stage else (default or kind)
+
+
+def stage_category(kind: str, default: str = "runtime") -> str:
+    """Return the stage category used by execution timeline consumers."""
+    stage = get_stage(kind)
+    return stage.category if stage else default
+
+
+def stage_sort_order(kind: str, default: int = 999) -> int:
+    """Return a stable sort order for execution nodes of the same timestamp."""
+    stage = get_stage(kind)
+    return stage.sort_order if stage else default

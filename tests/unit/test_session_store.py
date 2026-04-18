@@ -14,6 +14,7 @@ from orion_agent.core.models import (
     UserProfileFact,
     utcnow,
 )
+from orion_agent.core.repository import TaskRepository
 from orion_agent.core.session_store import SessionStore
 
 
@@ -310,6 +311,47 @@ class SessionStoreTests(unittest.TestCase):
         trace = store.get_trace_lookup(None)
 
         self.assertEqual(trace, {})
+
+    def test_list_sessions_by_source_delegates_directly_to_repository_filter(self) -> None:
+        # 场景：分叉会话查询应直接委托带 source_session_id 条件的仓储接口，不能退化成只扫描最近会话窗口。
+        store, mock_repo = self._make_store()
+        mock_repo.list_sessions_by_source.return_value = [ChatSession(title="branch")]
+
+        result = store.list_sessions_by_source("origin_session", limit=5)
+
+        self.assertEqual(len(result), 1)
+        mock_repo.list_sessions_by_source.assert_called_once_with("origin_session", limit=5)
+        mock_repo.list_sessions.assert_not_called()
+
+
+class SessionStoreRepositoryBehaviorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.repository = TaskRepository(db_path=":memory:")
+
+    def tearDown(self) -> None:
+        self.repository.close()
+
+    def test_list_sessions_by_source_queries_all_matching_branches(self) -> None:
+        # 场景：当近期大量无关会话存在时，仍然能查到较早的分叉会话，不能只扫描最近窗口。
+        origin = ChatSession(id="origin", title="origin")
+        self.repository.save_session(origin)
+
+        for index in range(12):
+            branched = ChatSession(
+                id=f"branch_{index}",
+                title=f"branch {index}",
+                source_session_id="origin",
+            )
+            self.repository.save_session(branched)
+
+        for index in range(40):
+            unrelated = ChatSession(id=f"noise_{index}", title=f"noise {index}")
+            self.repository.save_session(unrelated)
+
+        result = self.repository.list_sessions_by_source("origin", limit=12)
+
+        self.assertEqual(len(result), 12)
+        self.assertTrue(all(item.source_session_id == "origin" for item in result))
 
 
 if __name__ == "__main__":

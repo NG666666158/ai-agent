@@ -29,9 +29,9 @@ function statusLabel(status: string) {
     RUNNING: "执行中",
     WAITING_TOOL: "等待工具",
     REPLANNING: "重规划中",
-    REFLECTING: "复核中",
+    REFLECTING: "结果复核中",
     COMPLETED: "已完成",
-    FAILED: "失败",
+    FAILED: "执行失败",
     CANCELLED: "已取消",
   };
   return mapping[status] ?? status;
@@ -98,17 +98,17 @@ export function SessionsPage() {
       return;
     }
     setSubmitting(true);
-    setStatusText("正在创建分叉会话...");
+    setStatusText("正在创建分支会话...");
     try {
       const created = await createSession({
-        title: branchTitle.trim() || `${selected.session.title} · 分支`,
+        title: branchTitle.trim() || `${selected.session.title} - 分支续聊`,
         source_session_id: selected.session.id,
         seed_prompt: branchPrompt.trim() || undefined,
       });
       setBranchTitle("");
       setBranchPrompt("");
       await loadSessions(created.id);
-      setStatusText("分叉会话已创建，可以继续多轮续聊。");
+      setStatusText("分支会话已创建，可以继续多轮续聊。");
     } finally {
       setSubmitting(false);
     }
@@ -124,7 +124,7 @@ export function SessionsPage() {
         <div className="panel-head">
           <div>
             <h2>会话历史</h2>
-            <div className="meta">查看所有 chat session，回放消息、刷新摘要，并从任意会话继续分叉续聊。</div>
+            <div className="meta">查看全部 chat session，回放消息、刷新摘要，并从任意会话继续分支续聊。</div>
           </div>
           <button className="secondary" onClick={() => void loadSessions()}>
             刷新会话
@@ -141,9 +141,9 @@ export function SessionsPage() {
               <h3>{session.title}</h3>
               <div className="meta">{session.id}</div>
               <div className="meta">
-                消息数 {session.message_count} | {new Date(session.updated_at).toLocaleString("zh-CN")}
+                消息数：{session.message_count} | {new Date(session.updated_at).toLocaleString("zh-CN")}
               </div>
-              {session.source_session_id ? <div className="meta">分叉来源：{session.source_session_id}</div> : null}
+              {session.source_session_id ? <div className="meta">分支来源：{session.source_session_id}</div> : null}
               {session.context_summary ? <pre>{session.context_summary}</pre> : null}
             </article>
           ))}
@@ -161,7 +161,7 @@ export function SessionsPage() {
                   {selected.session.id} | 创建于 {new Date(selected.session.created_at).toLocaleString("zh-CN")}
                 </div>
                 {selected.session.source_session_id ? (
-                  <div className="meta">这是从会话 {selected.session.source_session_id} 分叉出来的续聊分支。</div>
+                  <div className="meta">这是从会话 {selected.session.source_session_id} 分支出来的续聊分支。</div>
                 ) : null}
               </div>
               <div className="actions">
@@ -180,7 +180,7 @@ export function SessionsPage() {
             </section>
 
             <section className="detail-section">
-              <h3>分叉续聊</h3>
+              <h3>分支续聊</h3>
               <div className="task-form">
                 <label>
                   新会话标题
@@ -201,7 +201,7 @@ export function SessionsPage() {
                 </label>
                 <div className="actions">
                   <button onClick={() => void handleBranch()} disabled={submitting}>
-                    {submitting ? "创建中..." : "从当前会话分叉"}
+                    {submitting ? "创建中..." : "从当前会话分支"}
                   </button>
                 </div>
               </div>
@@ -218,7 +218,7 @@ export function SessionsPage() {
                   ))}
                 </div>
               ) : (
-                <div className="meta">当前会话还没有分叉分支。</div>
+                <div className="meta">当前会话还没有分支会话。</div>
               )}
             </section>
 

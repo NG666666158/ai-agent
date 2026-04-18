@@ -218,8 +218,7 @@ function RecoveryEventCard({ event }: { event: ReplanEvent }) {
         触发阶段：{event.trigger_phase} | 检查点：{event.checkpoint_stage ?? "未知"}
       </div>
       <div className="meta">
-        恢复策略：{event.recovery_strategy} | 恢复起点：
-        {event.resume_from_step_name ?? event.checkpoint_step_id ?? "未记录"}
+        恢复策略：{event.recovery_strategy} | 恢复起点：{event.resume_from_step_name ?? event.checkpoint_step_id ?? "未记录"}
       </div>
       {event.detail ? <pre>{event.detail}</pre> : null}
     </article>
@@ -477,7 +476,7 @@ export function TasksPage() {
             <section className="detail-section">
               <h3>最终结果</h3>
               <div className="markdown-result">
-                {renderedMarkdown ?? <p className="meta">暂无结果输出</p>}
+                {renderedMarkdown ?? <p className="meta">暂无结果输出。</p>}
               </div>
               {selectedTask.paragraph_citations.length
                 ? renderFootnoteSection(citationSourceMap, footnoteNumbers, sourceParagraphMap)
@@ -508,8 +507,7 @@ export function TasksPage() {
               <h3>历史追溯</h3>
               <div className="card">
                 <div className="meta">
-                  关联会话：{trace?.session?.session.title ?? "无"}{" "}
-                  {trace?.session?.session.id ? `| ${trace.session.session.id}` : ""}
+                  关联会话：{trace?.session?.session.title ?? "无"} {trace?.session?.session.id ? `| ${trace.session.session.id}` : ""}
                 </div>
                 <div className="meta">
                   召回记忆数：{trace?.memory_ids.length ?? 0} | 工具调用数：{trace?.tool_count ?? 0}

@@ -113,7 +113,9 @@ export function ProfilePage() {
       <div className="panel-head">
         <div>
           <h2>用户画像与偏好</h2>
-          <div className="meta">这里会展示跨会话沉淀下来的偏好事实。你可以手动修正、归档冲突项，并把重复画像合并成唯一主记录。</div>
+          <div className="meta">
+            这里会展示跨会话沉淀下来的偏好事实。你可以手动修正、归档冲突项，并把重复画像合并成唯一主记录。
+          </div>
         </div>
         <button className="secondary" onClick={() => void loadFacts()}>
           刷新画像
@@ -297,7 +299,9 @@ export function ProfilePage() {
           </article>
         ))}
 
-        {!facts.length ? <div className="meta">先在控制台里进行几轮真实对话，例如“我想学 Java”，系统会逐步抽取并沉淀稳定偏好。</div> : null}
+        {!facts.length ? (
+          <div className="meta">先在控制台里进行几轮真实对话，例如“我想学 Java”，系统会逐步抽取并沉淀稳定偏好。</div>
+        ) : null}
       </div>
     </section>
   );

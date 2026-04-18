@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 from unittest.mock import patch, MagicMock
 
@@ -9,6 +10,7 @@ from orion_agent.core.llm_runtime import FallbackLLMClient
 from orion_agent.core.memory import TaskMemoryManager
 from orion_agent.core.models import (
     FailureCategory,
+    PendingApproval,
     ParsedGoal,
     Step,
     TaskCreateRequest,
@@ -187,6 +189,55 @@ class ExecutionEngineToolMetadataTests(unittest.TestCase):
         finally:
             self.engine.tool_registry._definitions["web_search"] = original_def
 
+    def test_restricted_tool_does_not_proceed_when_existing_approval_is_rejected(self) -> None:
+        """Rejected approval must not be treated as granted approval."""
+        original_def = self.engine.tool_registry._definitions["web_search"]
+        restricted_def = ToolDefinition(
+            name="web_search",
+            description="restricted search",
+            input_schema={"query": "string"},
+            output_schema={"results": "string"},
+            permission_level=ToolPermission.RESTRICTED,
+            max_retries=0,
+            category="search",
+            display_name="受限搜索",
+            display_label="受限搜索",
+        )
+        self.engine.tool_registry._definitions["web_search"] = restricted_def
+
+        try:
+            task = TaskRecord(title="rejected approval")
+            from orion_agent.core.models import PendingApproval
+
+            task.pending_approvals.append(
+                PendingApproval(
+                    tool_name="web_search",
+                    operation="受限搜索",
+                    message="rejected",
+                    risk_note="test",
+                    permission_level=ToolPermission.RESTRICTED,
+                    approved=False,
+                )
+            )
+
+            with self.assertRaises(ToolExecutionError) as ctx:
+                self.engine._call_tool(task=task, step_id="step_1", tool_name="web_search", query="test")
+
+            self.assertEqual(ctx.exception.category, FailureCategory.PERMISSION_DENIED)
+            self.assertEqual(task.tool_invocations[-1].status, ToolCallStatus.ERROR)
+        finally:
+            self.engine.tool_registry._definitions["web_search"] = original_def
+
+    def test_success_invocation_uses_none_failure_category(self) -> None:
+        """Successful tool invocations must not carry INTERNAL_ERROR metadata."""
+        task = TaskRecord(title="success category")
+
+        self.engine._call_tool(task=task, step_id="step_1", tool_name="summarize_text", text="hello")
+
+        invocation = task.tool_invocations[-1]
+        self.assertEqual(invocation.status, ToolCallStatus.SUCCESS)
+        self.assertEqual(invocation.failure_category, FailureCategory.NONE)
+
     def test_timeout_ms_passed_to_registry_invoke(self) -> None:
         """Effective timeout_ms from tool definition is forwarded to registry invoke."""
         task = TaskRecord(title="timeout forward")
@@ -211,8 +262,9 @@ class ExecutionEngineToolMetadataTests(unittest.TestCase):
         self.assertGreaterEqual(len(task.tool_invocations), 1)
 
     def test_resolve_source_material_from_source_path(self) -> None:
-        temp = Path("tests/.tmp_source.txt")
-        temp.write_text("source content for execution engine", encoding="utf-8")
+        with NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".txt") as handle:
+            handle.write("source content for execution engine")
+            temp = Path(handle.name)
         try:
             task = TaskRecord(title="source path")
             request = TaskCreateRequest(goal="读取本地文件并整理输出结果", source_path=str(temp), enable_web_search=False)
@@ -266,6 +318,48 @@ class ExecutionEngineToolMetadataTests(unittest.TestCase):
         self.assertEqual(result.failure_category, FailureCategory.TOOL_TIMEOUT)
         self.assertIn("联网检索失败，等待恢复策略。", progress_messages)
         self.assertEqual(result.status, TaskStatus.RUNNING)
+
+    def test_run_enters_waiting_approval_for_restricted_tool(self) -> None:
+        """Restricted tools should pause execution in WAITING_APPROVAL with a pending approval record."""
+        settings = Settings(allow_online_search=False, tool_max_retries=1)
+        engine = ExecutionEngine(
+            tool_registry=ToolRegistry(settings),
+            memory_manager=TaskMemoryManager(),
+            llm_client=FallbackLLMClient(),
+            prompts=PromptLibrary(),
+            settings=settings,
+        )
+        task = TaskRecord(
+            title="restricted approval flow",
+            status=TaskStatus.RUNNING,
+            steps=[
+                Step(name="Read Source Material", description="read", tool_name="read_local_file"),
+                Step(name="Draft Deliverable", description="deliver", tool_name="generate_markdown"),
+            ],
+        )
+        parsed_goal = ParsedGoal(goal="read file", expected_output="markdown", deliverable_title="test")
+        request = TaskCreateRequest(goal="read file", source_path="missing.txt", enable_web_search=False)
+        original_def = engine.tool_registry._definitions["read_local_file"]
+        engine.tool_registry._definitions["read_local_file"] = ToolDefinition(
+            name="read_local_file",
+            description="restricted read",
+            input_schema={"path": "string"},
+            output_schema={"content": "string"},
+            permission_level=ToolPermission.RESTRICTED,
+            category="file",
+            display_name="受限读文件",
+            display_label="受限读文件",
+        )
+
+        try:
+            result = engine.run(task, parsed_goal, request, [])
+            self.assertEqual(result.status, TaskStatus.WAITING_APPROVAL)
+            self.assertEqual(result.failure_category, FailureCategory.PERMISSION_DENIED)
+            self.assertEqual(len(result.pending_approvals), 1)
+            self.assertEqual(result.pending_approvals[0].tool_name, "read_local_file")
+            self.assertEqual(result.tool_invocations[-1].failure_category, FailureCategory.PERMISSION_DENIED)
+        finally:
+            engine.tool_registry._definitions["read_local_file"] = original_def
 
     def test_generate_deliverable_records_markdown_tool_invocation(self) -> None:
         task = TaskRecord(

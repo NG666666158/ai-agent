@@ -1,15 +1,11 @@
-"""Dedicated recovery policy for Orion Agent.
-
-Extracts failure recovery decision logic from the orchestrator so that
-retries, skip-step recovery, and replan behavior are easier to evolve safely.
-"""
+"""Dedicated recovery policy for Orion Agent."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from orion_agent.core.config import Settings
-from orion_agent.core.models import FailureCategory, FailureResolution, TaskRecord
+from orion_agent.core.models import FailureCategory, FailureResolution, Step, StepStatus, TaskRecord
 
 
 @dataclass
@@ -19,17 +15,8 @@ class RecoveryPolicy:
     settings: Settings
 
     def classify_failure_resolution(self, task: TaskRecord, category: FailureCategory) -> FailureResolution:
-        """Classify how to handle a failure given its category.
-
-        Returns one of:
-        - RETRY_CURRENT_STEP: retry the failed step
-        - SKIP_FAILED_STEP: skip and continue
-        - REPLAN_REMAINING_STEPS: rebuild remaining plan from failed step
-        - REPLAN_FROM_CHECKPOINT: rebuild entire plan from checkpoint
-        - REQUIRE_USER_ACTION: wait for user input
-        - FAIL_FAST: terminate immediately
-        """
-        failed_step = self._find_failed_step(task)
+        """Classify how to handle a failure given its category."""
+        failed_step = self.find_failed_step(task)
         if category == FailureCategory.INTERNAL_ERROR:
             return FailureResolution.RETRY_CURRENT_STEP
         if category == FailureCategory.PERMISSION_DENIED:
@@ -44,42 +31,27 @@ class RecoveryPolicy:
             return FailureResolution.REPLAN_FROM_CHECKPOINT
         return FailureResolution.FAIL_FAST
 
-    def can_skip_failed_step(self, failed_step, category: FailureCategory) -> bool:
-        """Determine if a failed step can be safely skipped.
-
-        Currently only web_search steps that fail with timeout or
-        unavailable can be skipped.
-        """
-        if failed_step.tool_name == "web_search" and category in {
+    def can_skip_failed_step(self, failed_step: Step, category: FailureCategory) -> bool:
+        """Determine if a failed step can be safely skipped."""
+        return failed_step.tool_name == "web_search" and category in {
             FailureCategory.TOOL_TIMEOUT,
+            FailureCategory.NETWORK_ERROR,
             FailureCategory.TOOL_UNAVAILABLE,
-        }:
-            return True
-        return False
+        }
 
-    def can_replan_remaining_steps(self, task: TaskRecord, failed_step) -> bool:
-        """Determine if remaining steps after a failure can be safely replanned.
-
-        Only replans if there are completed steps before the failed step,
-        ensuring we have a meaningful prefix to preserve.
-        """
-        from orion_agent.core.models import StepStatus
-
+    def can_replan_remaining_steps(self, task: TaskRecord, failed_step: Step) -> bool:
+        """Determine if only the remaining suffix should be rebuilt."""
         try:
-            failed_index = next(
-                index for index, step in enumerate(task.steps) if step.id == failed_step.id
-            )
+            failed_index = next(index for index, step in enumerate(task.steps) if step.id == failed_step.id)
         except StopIteration:
             return False
-        # Only replan if there are completed steps before the failed one
         return failed_index > 0 and any(
-            step.status in {StepStatus.DONE, StepStatus.SKIPPED} for step in task.steps[:failed_index]
+            step.status in {StepStatus.DONE, StepStatus.SKIPPED}
+            for step in task.steps[:failed_index]
         )
 
-    def _find_failed_step(self, task: TaskRecord):
-        """Find the first failed step in the task steps list (searches in reverse)."""
-        from orion_agent.core.models import StepStatus
-
+    def find_failed_step(self, task: TaskRecord) -> Step | None:
+        """Return the most recent failed step from the execution plan."""
         for step in reversed(task.steps):
             if step.status == StepStatus.ERROR:
                 return step

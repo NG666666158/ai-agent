@@ -3,12 +3,12 @@ import type { PropsWithChildren } from "react";
 import type { View } from "../routing";
 
 const navItems: Array<{ id: View; label: string; kicker: string }> = [
-  { id: "console", label: "对话控制台", kicker: "发起任务与查看回答" },
+  { id: "console", label: "对话控制台", kicker: "发起任务并查看回答" },
   { id: "tasks", label: "任务中心", kicker: "查看执行详情" },
-  { id: "sessions", label: "会话历史", kicker: "追溯上下文" },
-  { id: "memories", label: "记忆管理", kicker: "浏览与维护" },
-  { id: "profile", label: "用户画像", kicker: "跨会话偏好" },
-  { id: "settings", label: "系统设置", kicker: "运行状态与配置" },
+  { id: "sessions", label: "会话历史", kicker: "追溯上下文与分支" },
+  { id: "memories", label: "记忆管理", kicker: "浏览、编辑与维护记忆" },
+  { id: "profile", label: "用户画像", kicker: "查看跨会话偏好与画像" },
+  { id: "settings", label: "系统设置", kicker: "查看运行状态与配置" },
 ];
 
 type AppShellProps = PropsWithChildren<{

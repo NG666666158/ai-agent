@@ -76,7 +76,9 @@ class LongTermMemoryManager:
                 cloned.retrieval_reason = "fallback:recent_memory"
                 cloned.retrieval_channels = ["recent_fallback"]
                 candidates[record.id] = cloned
-            return list(candidates.values())[:limit]
+            results = list(candidates.values())[:limit]
+            self._touch_access_metadata(results)
+            return results
 
         reranked: list[tuple[float, datetime, LongTermMemoryRecord]] = []
         for record_id, record in candidates.items():
@@ -94,13 +96,20 @@ class LongTermMemoryManager:
 
         reranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
         results = [item[2] for item in reranked[:limit]]
-        # Track governance access metadata and persist
-        now = utcnow()
-        for record in results:
-            record.last_accessed_at = now
-            record.accessed_count += 1
-            self.repository.save_long_term_memory(record)
+        self._touch_access_metadata(results)
         return results
+
+    def _touch_access_metadata(self, records: list[LongTermMemoryRecord]) -> None:
+        """Persist access counters without storing query-specific retrieval annotations."""
+        now = utcnow()
+        for record in records:
+            persisted = self.repository.get_long_term_memory(record.id)
+            base_record = persisted.model_copy(deep=True) if persisted is not None else record.model_copy(deep=True)
+            base_record.last_accessed_at = now
+            base_record.accessed_count += 1
+            saved = self.repository.save_long_term_memory(base_record)
+            record.last_accessed_at = saved.last_accessed_at
+            record.accessed_count = saved.accessed_count
 
     def remember(self, record: LongTermMemoryRecord) -> LongTermMemoryRecord:
         if not record.embedding:

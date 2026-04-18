@@ -85,7 +85,7 @@ export function MemoriesPage() {
     <section className="panel">
       <div className="panel-head">
         <div>
-          <h2>记忆管理页</h2>
+          <h2>记忆管理</h2>
           <div className="meta">查看、搜索、编辑和软删除长期记忆，同时追溯来源与版本历史。</div>
         </div>
         <button className="secondary" onClick={() => void loadMemories()}>
@@ -252,6 +252,7 @@ export function MemoriesPage() {
             </article>
           );
         })}
+        {!memories.length ? <div className="meta">当前还没有可展示的记忆记录。</div> : null}
       </div>
     </section>
   );
