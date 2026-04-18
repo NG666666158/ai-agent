@@ -60,7 +60,7 @@
         "Run the matching backend unittest modules and frontend build if touched"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": ""
     }
   ]
