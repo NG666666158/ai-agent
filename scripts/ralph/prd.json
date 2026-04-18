@@ -45,7 +45,7 @@
         "Run the relevant backend unittest modules and frontend build if touched"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
