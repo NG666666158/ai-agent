@@ -22,6 +22,7 @@ from orion_agent.core.models import (
     ChatSessionDetail,
     CitationSource,
     ContextLayer,
+    ContextTraceEntry,
     FailureCategory,
     FailureResolution,
     LongTermMemoryRecord,
@@ -45,6 +46,7 @@ from orion_agent.core.models import (
     TaskResumeRequest,
     TaskStatus,
     StepStatus,
+    TrimReason,
     UserProfileFact,
     UserProfileMergeRequest,
     UserProfileUpdateRequest,
@@ -429,14 +431,29 @@ class AgentService:
         self._append_progress(task, "memory", "正在检索记忆。", f"记忆作用域：{request.memory_scope}")
         self.repository.save(task)
 
-        task.recalled_memories = self.long_term_memory.recall(query=request.goal, scope=request.memory_scope, limit=5)
-        task.profile_hits = self.profile_manager.match_relevant(request.goal, limit=4)
+        RECALLED_MEMORIES_LIMIT = 5
+        PROFILE_HITS_LIMIT = 4
+        task.recalled_memories = self.long_term_memory.recall(query=request.goal, scope=request.memory_scope, limit=RECALLED_MEMORIES_LIMIT)
+        task.profile_hits = self.profile_manager.match_relevant(request.goal, limit=PROFILE_HITS_LIMIT)
         task.context_layers.recalled_memories = [
             self._format_recalled_memory_context(item) for item in task.recalled_memories
         ]
         if task.context_layers.budget_usage:
             task.context_layers.budget_usage.recalled_memories_count = len(task.recalled_memories)
+            recalled_trim_reason = TrimReason.COMPRESSED if len(task.recalled_memories) >= RECALLED_MEMORIES_LIMIT else TrimReason.NONE
+            task.context_layers.budget_usage.recalled_memories_trim_reason = recalled_trim_reason
             task.context_layers.budget_usage.profile_facts_count = len(task.profile_hits)
+            profile_trim_reason = TrimReason.COMPRESSED if len(task.profile_hits) >= PROFILE_HITS_LIMIT else TrimReason.NONE
+            task.context_layers.budget_usage.profile_facts_trim_reason = profile_trim_reason
+            # Add trace entry for recalled_memories layer (profile_facts trace already added in build())
+            task.context_layers.trace_entries.append(
+                ContextTraceEntry(
+                    layer="recalled_memories",
+                    source="long_term_memory",
+                    source_id=None,
+                    message=f"limit={RECALLED_MEMORIES_LIMIT}, count={len(task.recalled_memories)}, reason={recalled_trim_reason.value}",
+                )
+            )
         task.context_layers.profile_facts = [f"{item.label}: {item.value}" for item in task.profile_hits]
         self.memory_manager.write(task, "memory_scope", request.memory_scope)
         self._append_progress(

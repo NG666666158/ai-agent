@@ -228,6 +228,40 @@ class ContextBuilderTests(unittest.TestCase):
 
         self.assertEqual(ctx.budget_usage.recent_messages_trim_reason, TrimReason.FILTERED)
 
+    def test_recalled_memories_governance_initialized_as_placeholder(self) -> None:
+        # 场景：build() 初始化 recalled_memories 相关治理字段为占位值，实际值由运行时填充。
+        profile_mgr = StubProfileManager()
+        repo = StubRepository()
+        builder = ContextBuilder(profile_mgr, repo)
+
+        request = TaskCreateRequest(goal="测试记忆召回治理", session_id="s_test")
+        ctx = builder.build(request)
+
+        # recalled_memories_count 和 trim_reason 在 build 时为占位值
+        self.assertEqual(ctx.budget_usage.recalled_memories_count, 0)
+        self.assertEqual(ctx.budget_usage.recalled_memories_trim_reason, TrimReason.NONE)
+        self.assertEqual(ctx.budget_usage.recalled_memories_limit, CONTEXT_BUDGET["recalled_memories"])
+        # recalled_memories layer 的 trace entry 不在 build() 中添加（由运行时添加）
+        recalled_trace = [e for e in ctx.trace_entries if e.layer == "recalled_memories"]
+        self.assertEqual(len(recalled_trace), 0)
+
+    def test_profile_facts_trim_reason_set_during_build(self) -> None:
+        # 场景：profile_facts_trim_reason 在 build() 时根据条数是否超限设置。
+        profile_mgr = StubProfileManager()
+        repo = StubRepository()
+        builder = ContextBuilder(profile_mgr, repo)
+
+        # StubProfileManager 返回 2 条 profile facts，低于 budget 限制 6
+        request = TaskCreateRequest(goal="测试画像裁剪", session_id="s_test")
+        ctx = builder.build(request)
+
+        self.assertEqual(ctx.budget_usage.profile_facts_count, 2)
+        self.assertEqual(ctx.budget_usage.profile_facts_trim_reason, TrimReason.NONE)
+        # profile_facts layer 的 trace entry 在 build() 中已添加
+        profile_trace = [e for e in ctx.trace_entries if e.layer == "profile_facts"]
+        self.assertEqual(len(profile_trace), 1)
+        self.assertIn("reason=NONE", profile_trace[0].message)
+
 
 if __name__ == "__main__":
     unittest.main()

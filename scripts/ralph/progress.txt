@@ -218,3 +218,11 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest 146 tests ✓；PYTHONPATH=src python -m unittest 30 citation/execution_engine tests ✓
 - 学到：RecoveryStateMachine.transition() 内部已调用 policy.classify_failure_resolution，无需在主循环中重复调用；状态机将恢复状态作为主驱动（recovery_state），而 FailureResolution 仅用于记录和分支条件；reset_to_healthy 在进入终态失败前调用，确保状态机不会卡在非 HEALTHY 状态。
 ---
+
+## 2026-04-18 08:30 - US-R16
+- 已完成上下文治理合约：recalled_memories_trim_reason 在 _run_task_flow 中根据召回结果是否达到 limit 设置为 COMPRESSED/NONE；profile_facts_trim_reason 在 _run_task_flow 中根据匹配结果是否达到 limit 设置为 COMPRESSED/NONE；recalled_memories 层的 ContextTraceEntry 在运行时添加（profile_facts trace 在 build() 中已添加）。
+- 修改文件：src/orion_agent/core/runtime_agent.py（导入 TrimReason/ContextTraceEntry，更新 _run_task_flow 中的治理字段）、tests/unit/test_context_builder.py（新增 2 个治理测试）
+- 新增文件：tests/unit/test_context_governance_runtime.py（6 个运行时治理测试）
+- 质量检查：PYTHONPATH=src python -m unittest 139 相关 tests ✓
+- 学到：ContextBuilder.build() 为 recalled_memories 设置占位值（count=0, trim_reason=NONE），实际值由 runtime_agent._run_task_flow() 在召回后填充；profile_facts_trim_reason 在 build() 时根据 session snapshot 的 profile facts 设置，运行时再根据 match_relevant 结果更新；recalled_memories trace entry 仅在运行时添加（因 build() 时尚无召回数据），而 profile_facts trace entry 在 build() 和运行时都会设置但需避免重复。
+---
