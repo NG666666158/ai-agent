@@ -22,12 +22,26 @@ class ExecutionStage:
 
 
 EXECUTION_STAGES: dict[str, ExecutionStage] = {
+    "thinking": ExecutionStage(
+        kind="thinking",
+        title="输入解析与任务标准化",
+        short_label="输入解析",
+        category="reasoning",
+        sort_order=5,
+    ),
     "query_rewrite": ExecutionStage(
         kind="query_rewrite",
         title="输入解析与任务标准化",
         short_label="任务解析",
         category="reasoning",
         sort_order=10,
+    ),
+    "context": ExecutionStage(
+        kind="context",
+        title="上下文分层与提示词拼接",
+        short_label="上下文加载",
+        category="reasoning",
+        sort_order=15,
     ),
     "prompt_assembly": ExecutionStage(
         kind="prompt_assembly",
@@ -43,20 +57,26 @@ EXECUTION_STAGES: dict[str, ExecutionStage] = {
         category="retrieval",
         sort_order=30,
     ),
+    "memory": ExecutionStage(
+        kind="memory",
+        title="多路召回与来源整合",
+        short_label="记忆召回",
+        category="retrieval",
+        sort_order=45,
+    ),
     "multi_recall": ExecutionStage(
         kind="multi_recall",
         title="多路召回与来源整合",
         short_label="多路召回",
         category="retrieval",
-        sort_order=40,
-    ),
-    "progress": ExecutionStage(
-        kind="progress",
-        title="系统进度",
-        short_label="系统进度",
-        category="runtime",
         sort_order=50,
-        supports_artifacts=False,
+    ),
+    "planning": ExecutionStage(
+        kind="planning",
+        title="执行计划生成",
+        short_label="计划生成",
+        category="reasoning",
+        sort_order=55,
     ),
     "step": ExecutionStage(
         kind="step",
@@ -65,6 +85,13 @@ EXECUTION_STAGES: dict[str, ExecutionStage] = {
         category="runtime",
         sort_order=60,
     ),
+    "running": ExecutionStage(
+        kind="running",
+        title="任务执行中",
+        short_label="执行中",
+        category="runtime",
+        sort_order=62,
+    ),
     "tool": ExecutionStage(
         kind="tool",
         title="工具调用",
@@ -72,12 +99,26 @@ EXECUTION_STAGES: dict[str, ExecutionStage] = {
         category="runtime",
         sort_order=70,
     ),
+    "approval": ExecutionStage(
+        kind="approval",
+        title="等待用户确认",
+        short_label="待确认",
+        category="runtime",
+        sort_order=73,
+    ),
     "recovery": ExecutionStage(
         kind="recovery",
         title="恢复与重规划",
         short_label="恢复与重规划",
         category="recovery",
         sort_order=80,
+    ),
+    "replanning": ExecutionStage(
+        kind="replanning",
+        title="恢复与重规划",
+        short_label="重规划",
+        category="recovery",
+        sort_order=82,
     ),
     "answer_generation": ExecutionStage(
         kind="answer_generation",
@@ -92,6 +133,49 @@ EXECUTION_STAGES: dict[str, ExecutionStage] = {
         short_label="结果复核",
         category="output",
         sort_order=100,
+    ),
+    "completed": ExecutionStage(
+        kind="completed",
+        title="任务已完成",
+        short_label="已完成",
+        category="output",
+        sort_order=105,
+    ),
+    "failed": ExecutionStage(
+        kind="failed",
+        title="任务执行失败",
+        short_label="执行失败",
+        category="output",
+        sort_order=110,
+    ),
+    "queued": ExecutionStage(
+        kind="queued",
+        title="任务已创建",
+        short_label="已创建",
+        category="runtime",
+        sort_order=2,
+    ),
+    "cancelled": ExecutionStage(
+        kind="cancelled",
+        title="任务已取消",
+        short_label="已取消",
+        category="output",
+        sort_order=115,
+    ),
+    "resume": ExecutionStage(
+        kind="resume",
+        title="任务恢复中",
+        short_label="恢复执行",
+        category="runtime",
+        sort_order=12,
+    ),
+    "progress": ExecutionStage(
+        kind="progress",
+        title="系统进度",
+        short_label="系统进度",
+        category="runtime",
+        sort_order=999,
+        supports_artifacts=False,
     ),
 }
 

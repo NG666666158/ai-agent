@@ -226,3 +226,11 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest 139 相关 tests ✓
 - 学到：ContextBuilder.build() 为 recalled_memories 设置占位值（count=0, trim_reason=NONE），实际值由 runtime_agent._run_task_flow() 在召回后填充；profile_facts_trim_reason 在 build() 时根据 session snapshot 的 profile facts 设置，运行时再根据 match_relevant 结果更新；recalled_memories trace entry 仅在运行时添加（因 build() 时尚无召回数据），而 profile_facts trace entry 在 build() 和运行时都会设置但需避免重复。
 ---
+
+## 2026-04-18 09:00 - US-R17
+- 已统一执行追踪合约：新增 12 个运行时阶段到 ExecutionRegistry（thinking、context、memory、planning、running、approval、replanning、queued、cancelled、resume、completed、failed），覆盖所有 _append_progress 调用的 stage 值；build_execution_nodes_v2 进度节点使用 progress.stage 作为 kind，并调用 stage_title()、stage_short_label() 从 registry 获取标题和短标签，而非硬编码 "progress"。
+- 修改文件：src/orion_agent/core/execution_registry.py（新增运行时阶段定义）、src/orion_agent/core/models.py（导入 stage_title/stage_short_label，更新 build_execution_nodes_v2 进度节点构建）
+- 修改文件：tests/unit/test_execution_registry.py（新增 2 个运行时阶段测试）
+- 质量检查：PYTHONPATH=src python -m unittest 141 相关 tests ✓
+- 学到：progress_nodes 的 kind 不再硬编码为 "progress"，而是使用实际的 stage 值（如 "thinking"、"memory"），使 registry 定义的元数据（title、short_label、category、sort_order）可以应用到所有进度节点；stage_title(kind, default) 允许对未知 kind 回退到 progress.message，保证向后兼容。
+---

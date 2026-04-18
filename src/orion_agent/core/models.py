@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from orion_agent.core.execution_registry import get_stage, stage_sort_order
+from orion_agent.core.execution_registry import get_stage, stage_sort_order, stage_title, stage_short_label
 
 
 def utcnow() -> datetime:
@@ -727,12 +727,13 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
         )
 
     for progress in record.progress_updates:
+        kind = progress.stage  # Use actual stage as kind; registry provides metadata
         nodes.append(
             ExecutionNode(
                 id=f"progress-node-{progress.id}",
-                kind="progress",
-                title=progress.message,
-                short_label=_short("progress"),
+                kind=kind,
+                title=stage_title(kind, progress.message),
+                short_label=stage_short_label(kind),
                 status="done" if record.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED} else "doing",
                 summary=progress.stage,
                 detail=progress.detail,

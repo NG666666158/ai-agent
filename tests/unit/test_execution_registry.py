@@ -13,18 +13,30 @@ from orion_agent.core.execution_registry import (
 
 class ExecutionRegistryTests(unittest.TestCase):
     def test_stages_cover_all_known_kinds(self) -> None:
-        # 场景：EXECUTION_STAGES 包含所有已知的执行阶段 kind。
+        # 场景：EXECUTION_STAGES 包含所有已知的执行阶段 kind，包括运行时进度阶段。
         known_kinds = [
+            "thinking",
             "query_rewrite",
+            "context",
             "prompt_assembly",
             "vector_retrieval",
+            "memory",
             "multi_recall",
-            "progress",
+            "planning",
             "step",
+            "running",
             "tool",
+            "approval",
             "recovery",
+            "replanning",
             "answer_generation",
             "review",
+            "completed",
+            "failed",
+            "queued",
+            "cancelled",
+            "resume",
+            "progress",
         ]
         for kind in known_kinds:
             self.assertIn(kind, EXECUTION_STAGES, f"kind '{kind}' should be in EXECUTION_STAGES")
@@ -84,6 +96,24 @@ class ExecutionRegistryTests(unittest.TestCase):
         self.assertEqual(EXECUTION_STAGES["tool"].short_label, "工具调用")
         self.assertEqual(EXECUTION_STAGES["recovery"].short_label, "恢复与重规划")
         self.assertEqual(EXECUTION_STAGES["answer_generation"].short_label, "回答生成")
+
+    def test_runtime_progress_stages_have_valid_metadata(self) -> None:
+        # 场景：运行时进度阶段（thinking、memory、planning 等）有有效的中文标签。
+        runtime_stages = ["thinking", "context", "memory", "planning", "running", "approval", "replanning"]
+        for stage_kind in runtime_stages:
+            stage = get_stage(stage_kind)
+            self.assertIsNotNone(stage, f"stage '{stage_kind}' should be in registry")
+            self.assertTrue(stage.title, f"stage '{stage_kind}' should have a title")
+            self.assertTrue(stage.short_label, f"stage '{stage_kind}' should have a short_label")
+            self.assertIn(stage.category, ["reasoning", "retrieval", "runtime", "recovery", "output"])
+
+    def test_terminal_stages_have_output_category(self) -> None:
+        # 场景：完成、失败、取消等终态阶段属于 output 类别。
+        terminal_stages = ["completed", "failed", "cancelled"]
+        for stage_kind in terminal_stages:
+            stage = get_stage(stage_kind)
+            self.assertIsNotNone(stage, f"terminal stage '{stage_kind}' should be in registry")
+            self.assertEqual(stage.category, "output", f"terminal stage '{stage_kind}' should be in output category")
 
 
 if __name__ == "__main__":
