@@ -48,6 +48,34 @@ class ToolCallStatus(str, Enum):
     ERROR = "ERROR"
 
 
+class ApprovalStatus(str, Enum):
+    """Tracks the approval state for a tool invocation.
+
+    NOT_REQUIRED: No approval needed (SAFE permission level).
+    PENDING: Approval required and request is awaiting user decision.
+    APPROVED: Approval was granted by user.
+    DENIED: Approval was explicitly denied by user.
+    """
+
+    NOT_REQUIRED = "NOT_REQUIRED"
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    DENIED = "DENIED"
+
+
+class EnforcementResult(str, Enum):
+    """Tracks what happened when a tool was invoked regarding permissions.
+
+    ALLOWED: Tool executed because permission was granted or not required.
+    BLOCKED: Tool was blocked because required approval was not granted.
+    ERROR: Permission check itself encountered an error.
+    """
+
+    ALLOWED = "ALLOWED"
+    BLOCKED = "BLOCKED"
+    ERROR = "ERROR"
+
+
 class FailureCategory(str, Enum):
     NONE = "NONE"
     INPUT_ERROR = "INPUT_ERROR"
@@ -288,6 +316,10 @@ class ToolInvocation(BaseModel):
     display_label: str | None = None
     permission_level: ToolPermission = ToolPermission.SAFE
     timeout_ms: int = 15_000
+    # Permission context: tracks approval requirement, status, and enforcement result
+    approval_required: bool = False
+    approval_status: ApprovalStatus | None = None
+    enforcement_result: EnforcementResult | None = None
 
 
 class PendingApproval(BaseModel):

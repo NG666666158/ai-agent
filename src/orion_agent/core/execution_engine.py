@@ -8,6 +8,8 @@ from orion_agent.core.config import Settings
 from orion_agent.core.llm_runtime import BaseLLMClient
 from orion_agent.core.memory import TaskMemoryManager
 from orion_agent.core.models import (
+    ApprovalStatus,
+    EnforcementResult,
     FailureCategory,
     LongTermMemoryRecord,
     ParsedGoal,
@@ -455,6 +457,9 @@ class ExecutionEngine:
                         display_label=definition.display_label,
                         permission_level=definition.permission_level,
                         timeout_ms=definition.effective_timeout_ms,
+                        approval_required=True,
+                        approval_status=ApprovalStatus.PENDING if has_open_approval else ApprovalStatus.DENIED,
+                        enforcement_result=EnforcementResult.BLOCKED,
                     )
                 )
                 if not has_open_approval:
@@ -490,6 +495,14 @@ class ExecutionEngine:
             output_preview: str | None = None,
             failure_category: FailureCategory,
         ) -> ToolInvocation:
+            # Determine permission context based on tool's permission level.
+            # SAFE: no approval required.
+            # CONFIRM: approval required but treated as granted (implicit confirmation).
+            # RESTRICTED: approval required and was explicitly granted to reach this point.
+            is_approval_required = definition.permission_level != ToolPermission.SAFE
+            approval_status: ApprovalStatus | None = (
+                ApprovalStatus.APPROVED if is_approval_required else None
+            )
             return ToolInvocation(
                 step_id=step_id,
                 tool_name=tool_name,
@@ -504,6 +517,9 @@ class ExecutionEngine:
                 display_label=definition.display_label,
                 permission_level=definition.permission_level,
                 timeout_ms=timeout_ms,
+                approval_required=is_approval_required,
+                approval_status=approval_status,
+                enforcement_result=EnforcementResult.ALLOWED,
             )
 
         for attempt in range(1, attempts_allowed + 1):

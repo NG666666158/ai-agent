@@ -196,3 +196,10 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_context_builder ✓ (8 tests)；PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_profile_and_memory tests.unit.test_session_store ✓ (97 tests)；npm run build --prefix frontend ✓
 - 学到：TRUNCATED 表示文本因字符超限被截断；COMPRESSED 表示条目数量被压缩（如 condense 从 6 条减至 3 条）；recalled_memories_trim_reason 在 ContextBuilder.build() 时初始化为 NONE，由 runtime_agent 在召回后更新。
 ---
+
+## 2026-04-18 07:00 - US-R13
+- 已统一 ToolPool 权限上下文：新增 ApprovalStatus 枚举（NOT_REQUIRED/PENDING/APPROVED/DENIED）跟踪审批状态；新增 EnforcementResult 枚举（ALLOWED/BLOCKED/ERROR）跟踪权限执行结果；ToolInvocation 新增 approval_required、approval_status、enforcement_result 字段；execution_engine._call_tool 在 RESTRICTED 工具被阻止时设置 approval_status=PENDING/DENIED 和 enforcement_result=BLOCKED，正常执行时设置 approval_required=True、approval_status=APPROVED、enforcement_result=ALLOWED；SAFE 工具 approval_required=False，CONFIRM 工具视为隐式审批通过。
+- 修改文件：src/orion_agent/core/models.py（新增 ApprovalStatus/EnforcementResult 枚举，ToolInvocation 新增权限上下文字段）、src/orion_agent/core/execution_engine.py（_call_tool 填充权限上下文）
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_profile_and_memory tests.unit.test_session_store ✓ (97 tests)；PYTHONPATH=src python -m unittest tests.unit.test_citation_map tests.unit.test_citation_runtime tests.unit.test_execution_engine_tool_calls ✓ (30 tests)；npm run build --prefix frontend ✓
+- 学到：RESTRICTED 工具被阻止时 approval_status 取决于是否有 open approval（pending_approvals 中 approved=None 的记录）；SAFE 工具不产生审批上下文，CONFIRM 工具视为隐式审批通过故 approval_status=APPROVED；_make_invocation 在构建成功/失败记录时根据 permission_level 设置统一的权限上下文。
+---
