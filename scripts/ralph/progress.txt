@@ -241,3 +241,11 @@ Started: 2026-04-17
 - 质量检查：npm run build --prefix frontend ✓；PYTHONPATH=src python -m unittest 141 相关 tests ✓
 - 学到：TaskCheckpoint.recovery_attempt 是当前恢复尝试次数（单数），而 ReplanEvent.recovery_attempts 是该恢复事件前的累计尝试次数（复数），两者含义不同但都用于恢复链路追踪；TypeScript 类型缺失会导致前端无法访问后端已序列化的字段，即使后端 model_dump() 已包含该值。
 ---
+
+## 2026-04-18 10:00 - US-R19
+- 已添加运行时硬化回归测试工具：回归测试集覆盖 R11-R18 所有核心行为（状态机逻辑、恢复流程、上下文治理、执行追踪合约、引用追踪、权限上下文），共 94 个测试；推荐最小回归命令已文档化。
+- 回归测试命令：PYTHONPATH=src python -m unittest tests.unit.test_recovery_policy tests.unit.test_recovery_flow tests.unit.test_recovery_state_machine_runtime tests.unit.test_context_governance_runtime tests.unit.test_execution_registry tests.unit.test_citation_runtime tests.unit.test_execution_engine_tool_calls
+- 相关测试覆盖：R11(状态机单元)、R13(权限上下文)、R14(恢复事件持久化)、R15(状态机运行时集成)、R16(上下文治理运行时更新)、R17(执行注册表)、R18(引用运行时)
+- 质量检查：PYTHONPATH=src python -m unittest 94 regression tests ✓
+- 学到：回归测试集应保持足够小以便于常规使用，但足够大以捕获最可能的回归；94 个测试在 0.03s 内完成，适合 CI/CD 集成；测试模块按关注领域划分（recovery_policy/flow/state_machine、context_governance、execution_registry、citation_runtime、execution_engine_tool_calls），便于精确定位问题。
+---
