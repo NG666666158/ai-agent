@@ -181,3 +181,11 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_profile_and_memory ✓ (7 tests)；PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_profile_and_memory tests.unit.test_session_store ✓ (76 tests)
 - 学到：governance_flags 为 set[str] 类型，Pydantic v2 的 Field(default_factory=set) 可以正常序列化；accessed_count 在每次 recall/match 时递增，即使同一记忆被多次召回也会正确累加；last_accessed_at 使用 utcnow() 在每次访问时更新。
 ---
+
+## 2026-04-18 06:00 - US-R11
+- 已强化恢复状态机：新增 RecoveryState 枚举（HEALTHY/RETRYING/SKIPPING/REPLANNING_REMAINING/REPLANNING_FULL/USER_ACTION/FAILED）和 _RECOVERY_STATE_TRANSITIONS 显式状态转换映射；新增 RecoveryStateMachine 类封装完整恢复状态生命周期，包含 transition()/can_transition_to()/reset_to_healthy()/state_description() 方法；RecoveryPolicy 保持向后兼容不做修改。
+- 修改文件：src/orion_agent/core/recovery_policy.py（新增 RecoveryState/InvalidTransitionError/MaxRetriesExceeded/_RECOVERY_STATE_TRANSITIONS/RecoveryStateMachine）
+- 新增文件：tests/unit/test_recovery_policy.py（新增 15 个 RecoveryStateMachine 单元测试）
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_recovery_policy ✓ (30 tests)；PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_profile_and_memory tests.unit.test_session_store ✓ (97 tests)；npm run build --prefix frontend ✓
+- 学到：FAILED 是终端状态（_STATE_TRANSITIONS[FAILED] = set()）；can_replan_remaining_steps 对第一步失败返回 False（因为 failed_index=0），此时走 REPLAN_FROM_CHECKPOINT；RETRYING 可以 escalation 到 SKIPPING（重试失败后降级跳过）是合法路径；state_description() 提供中文状态描述供 UI 使用。
+---
