@@ -33,6 +33,8 @@ export type TaskCheckpoint = {
   last_saved_at: string;
 };
 
+export type RecoveryStrategy = "revise_current_result" | "rebuild_plan_or_retry";
+
 export type ReplanEvent = {
   id: string;
   reason: string;
@@ -44,7 +46,8 @@ export type ReplanEvent = {
   checkpoint_step_id: string | null;
   resume_from_step_id: string | null;
   resume_from_step_name: string | null;
-  recovery_strategy: string;
+  recovery_strategy: RecoveryStrategy;
+  recovery_attempts: number;
   created_at: string;
 };
 

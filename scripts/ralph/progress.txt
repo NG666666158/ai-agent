@@ -234,3 +234,10 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest 141 相关 tests ✓
 - 学到：progress_nodes 的 kind 不再硬编码为 "progress"，而是使用实际的 stage 值（如 "thinking"、"memory"），使 registry 定义的元数据（title、short_label、category、sort_order）可以应用到所有进度节点；stage_title(kind, default) 允许对未知 kind 回退到 progress.message，保证向后兼容。
 ---
+
+## 2026-04-18 09:30 - US-R18
+- 已强化任务详情恢复载荷：ReplanEvent TypeScript 类型新增 recovery_attempts 字段（number），与后端 ReplanEvent.recovery_attempts 对齐；新增 RecoveryStrategy 类型定义（"revise_current_result" | "rebuild_plan_or_retry"），与后端 runtime_agent 设置的恢复策略值一致。
+- 修改文件：frontend/src/api.ts（ReplanEvent 新增 recovery_attempts 字段，新增 RecoveryStrategy 类型）
+- 质量检查：npm run build --prefix frontend ✓；PYTHONPATH=src python -m unittest 141 相关 tests ✓
+- 学到：TaskCheckpoint.recovery_attempt 是当前恢复尝试次数（单数），而 ReplanEvent.recovery_attempts 是该恢复事件前的累计尝试次数（复数），两者含义不同但都用于恢复链路追踪；TypeScript 类型缺失会导致前端无法访问后端已序列化的字段，即使后端 model_dump() 已包含该值。
+---
