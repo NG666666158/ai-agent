@@ -30,7 +30,7 @@
         "Run the relevant backend unittest modules"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
