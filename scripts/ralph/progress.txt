@@ -157,3 +157,11 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest test_citation_runtime test_citation_map test_execution_nodes ✓ (15 tests)；npm run build ✓
 - 学到：backend 的 session_message kind 在 frontend 曾误写为 session，导致回落值为 raw kind；所有 CITATION_KINDS keys 必须与 frontend toChineseSourceKind map 对齐才能保证引用标签正确显示；_build_citation_map 是纯函数，仅依赖 task 数据不依赖外部服务。
 ---
+
+## 2026-04-18 05:00 - US-R8
+- 已抽取 SessionStore 边界（src/orion_agent/core/session_store.py），包含 create_session、get_session、list_sessions、list_sessions_by_source、refresh_session_summary、append_message、touch_session、get_trace_lookup、compress_session_context 方法；runtime_agent 委托 SessionStore 处理所有会话操作，旧方法保留以维持向后兼容。
+- 新增文件：src/orion_agent/core/session_store.py、tests/unit/test_session_store.py
+- 修改文件：src/orion_agent/core/runtime_agent.py（AgentService 使用 SessionStore，删除旧的 _compress_session_context）
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_session_store tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_profile_and_memory ✓ (69 tests)；PYTHONPATH=src python -m unittest test_citation_map test_citation_runtime test_execution_engine_tool_calls ✓ (30 tests)
+- 学到：SessionStore 封装所有会话持久化和检索流程，包括会话创建（含分叉复制消息）、消息追加、摘要压缩、trace lookup；create_session 中使用 self.get_session() 获取源会话详情时注意不要与 repository.get_session() 混淆导致类型错误；append_message 在 session 不存在时会先创建会话并两次调用 save_session（一次创建会话框架，一次在消息追加后更新 message_count）。
+---

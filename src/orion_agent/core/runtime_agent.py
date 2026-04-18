@@ -6,6 +6,7 @@ import threading
 import time
 from pathlib import Path
 
+from orion_agent.core.citation_map import CitationMap
 from orion_agent.core.config import Settings, get_settings
 from orion_agent.core.context_builder import ContextBuilder
 from orion_agent.core.recovery_policy import RecoveryPolicy
@@ -55,6 +56,7 @@ from orion_agent.core.profile import UserProfileManager
 from orion_agent.core.prompts import PromptLibrary
 from orion_agent.core.reflection import Reflector
 from orion_agent.core.repository import TaskRepository
+from orion_agent.core.session_store import SessionStore
 from orion_agent.core.state_machine import transition_task
 from orion_agent.core.tools import ToolRegistry
 from orion_agent.core.vector_store import build_vector_store
@@ -101,6 +103,12 @@ class AgentService:
         self.reflector = Reflector(self.llm_client, self.prompts)
         self.evaluator = TaskEvaluator()
         self.recovery_policy = RecoveryPolicy(self.settings)
+        self.session_store = SessionStore(
+            self.repository,
+            self.profile_manager,
+            self.llm_client,
+            self.prompts,
+        )
         self._active_runs: dict[str, threading.Thread] = {}
         self._runs_lock = threading.RLock()
 
@@ -153,25 +161,10 @@ class AgentService:
         return [TaskResponse.from_record(task) for task in self.repository.list(limit=limit)]
 
     def create_session(self, payload: SessionCreateRequest | None = None) -> ChatSession:
-        payload = payload or SessionCreateRequest()
-        session = ChatSession(
-            title=(payload.title or "新对话").strip() or "新对话",
-            source_session_id=payload.source_session_id,
-            profile_snapshot=self.profile_manager.snapshot(limit=6),
-        )
-        session = self.repository.save_session(session)
-        if payload.source_session_id:
-            source_detail = self.get_session(payload.source_session_id, message_limit=12, task_limit=0)
-            if source_detail:
-                if payload.seed_prompt:
-                    self._append_session_message(session.id, ChatMessageRole.SYSTEM, f"分叉续聊说明：{payload.seed_prompt}")
-                for item in source_detail.messages[-6:]:
-                    self._append_session_message(session.id, item.role, item.content, task_id=item.task_id)
-                session = self.repository.get_session(session.id) or session
-        return session
+        return self.session_store.create_session(payload)
 
     def list_sessions(self, limit: int = 30) -> list[ChatSession]:
-        return self.repository.list_sessions(limit=limit)
+        return self.session_store.list_sessions(limit=limit)
 
     def list_user_profile_facts(self, limit: int = 50, *, include_inactive: bool = False) -> list[UserProfileFact]:
         return self.profile_manager.list_facts(limit=limit, include_inactive=include_inactive)
@@ -190,20 +183,10 @@ class AgentService:
         return self.profile_manager.merge_fact(fact_id, request.target_fact_id, summary=request.summary)
 
     def get_session(self, session_id: str, message_limit: int = 100, task_limit: int = 50) -> ChatSessionDetail | None:
-        session = self.repository.get_session(session_id)
-        if session is None:
-            return None
-        messages = self.repository.list_session_messages(session_id, limit=message_limit)
-        tasks = [TaskResponse.from_record(task) for task in self.repository.list_by_session(session_id, limit=task_limit)]
-        return ChatSessionDetail(session=session, messages=messages, tasks=tasks)
+        return self.session_store.get_session(session_id, message_limit=message_limit, task_limit=task_limit)
 
     def refresh_session_summary(self, session_id: str, payload: SessionSummaryRefreshRequest | None = None) -> ChatSessionDetail | None:
-        session = self.repository.get_session(session_id)
-        if session is None:
-            return None
-        if payload is None or payload.force:
-            self._compress_session_context(session_id, force=True)
-        return self.get_session(session_id)
+        return self.session_store.refresh_session_summary(session_id, payload)
 
     def list_memories(self, scope: str | None = None, query: str | None = None, limit: int = 50) -> list[LongTermMemoryRecord]:
         return self.repository.list_long_term_memories(scope=scope, query=query, limit=limit)
@@ -658,7 +641,7 @@ class AgentService:
         )
 
     def _prepare_current_step_retry(self, task: TaskRecord) -> None:
-        failed_step = self._find_failed_step(task)
+        failed_step = self.recovery_policy.find_failed_step(task)
         if failed_step is None:
             return
         failed_step.status = StepStatus.TODO
@@ -680,7 +663,7 @@ class AgentService:
 
     def _prepare_replan_from_failure(self, task: TaskRecord, request: TaskCreateRequest) -> None:
         failure_detail = task.failure_message or "执行过程中出现可恢复失败。"
-        failed_step = self._find_failed_step(task)
+        failed_step = self.recovery_policy.find_failed_step(task)
         self._mark_task_for_replan(
             task,
             reason=ReplanReason.TOOL_FAILURE,
@@ -730,7 +713,7 @@ class AgentService:
         )
 
     def _prepare_skip_failed_step(self, task: TaskRecord) -> None:
-        failed_step = self._find_failed_step(task)
+        failed_step = self.recovery_policy.find_failed_step(task)
         if failed_step is None:
             return
         failed_step.status = StepStatus.SKIPPED
@@ -755,7 +738,7 @@ class AgentService:
         )
 
     def _prepare_replan_remaining_steps(self, task: TaskRecord, request: TaskCreateRequest) -> None:
-        failed_step = self._find_failed_step(task)
+        failed_step = self.recovery_policy.find_failed_step(task)
         if failed_step is None:
             self._prepare_replan_from_failure(task, request)
             return
@@ -813,28 +796,6 @@ class AgentService:
             break
         return prefix
 
-    def _can_skip_failed_step(self, failed_step, category: FailureCategory) -> bool:
-        if failed_step.tool_name == "web_search" and category in {
-            FailureCategory.TOOL_TIMEOUT,
-            FailureCategory.NETWORK_ERROR,
-            FailureCategory.TOOL_UNAVAILABLE,
-        }:
-            return True
-        return False
-
-    def _can_replan_remaining_steps(self, task: TaskRecord, failed_step) -> bool:
-        try:
-            failed_index = next(index for index, step in enumerate(task.steps) if step.id == failed_step.id)
-        except StopIteration:
-            return False
-        return failed_index > 0 and any(step.status in {StepStatus.DONE, StepStatus.SKIPPED} for step in task.steps[:failed_index])
-
-    def _find_failed_step(self, task: TaskRecord):
-        for step in reversed(task.steps):
-            if step.status == StepStatus.ERROR:
-                return step
-        return None
-
     def _finalize_failed_execution(self, task: TaskRecord, resolution: FailureResolution) -> None:
         if task.status not in {TaskStatus.FAILED, TaskStatus.CANCELLED}:
             transition_task(task, TaskStatus.FAILED)
@@ -863,17 +824,19 @@ class AgentService:
             task.result or task.failure_message or "任务已完成，但没有可展示的结果。",
             task_id=task.id,
         )
-        self._compress_session_context(task.session_id)
+        self.session_store.compress_session_context(task.session_id)
         self._touch_session(task.session_id, task)
         self.repository.save(task)
         log_event("task.completed", task_id=task.id, status=task.status.value, steps=len(task.steps))
 
     def _build_result_citations(self, task: TaskRecord) -> None:
-        task.citation_sources = self._build_citation_source_pool(task)
-        task.paragraph_citations = self._build_paragraph_citations(task.result or "", task.citation_sources)
+        citation_map = self._build_citation_map(task)
+        task.citation_sources = citation_map.sources
+        task.paragraph_citations = citation_map.paragraphs
 
-    def _build_citation_source_pool(self, task: TaskRecord) -> list[CitationSource]:
-        sources: list[CitationSource] = []
+    def _build_citation_map(self, task: TaskRecord) -> CitationMap:
+        """Build a CitationMap containing all citation sources and paragraph mappings."""
+        cmap = CitationMap()
 
         for memory in task.recalled_memories:
             detail_segments = [
@@ -892,16 +855,14 @@ class AgentService:
                 detail_segments.append(f"来源会话：{memory.source.session_id}")
             if memory.source.task_id:
                 detail_segments.append(f"来源任务：{memory.source.task_id}")
-            sources.append(
-                CitationSource(
-                    kind="memory",
-                    label=f"记忆：{memory.topic}",
-                    detail=" | ".join(detail_segments),
-                    source_record_id=memory.id,
-                    source_session_id=memory.source.session_id,
-                    source_task_id=memory.source.task_id,
-                    excerpt=memory.details[:240],
-                )
+            cmap.add_source(
+                kind="memory",
+                label=f"记忆：{memory.topic}",
+                detail=" | ".join(detail_segments),
+                source_record_id=memory.id,
+                source_session_id=memory.source.session_id,
+                source_task_id=memory.source.task_id,
+                excerpt=memory.details[:240],
             )
 
         for fact in task.profile_hits:
@@ -916,57 +877,75 @@ class AgentService:
                 detail_segments.append(f"来源会话：{fact.source_session_id}")
             if fact.source_task_id:
                 detail_segments.append(f"来源任务：{fact.source_task_id}")
-            sources.append(
-                CitationSource(
-                    kind="profile",
-                    label=f"画像：{fact.label}={fact.value}",
-                    detail=" | ".join(detail_segments),
-                    source_record_id=fact.id,
-                    source_session_id=fact.source_session_id,
-                    source_task_id=fact.source_task_id,
-                    excerpt=(fact.summary or f"{fact.label}: {fact.value}")[:240],
-                )
+            cmap.add_source(
+                kind="profile",
+                label=f"画像：{fact.label}={fact.value}",
+                detail=" | ".join(detail_segments),
+                source_record_id=fact.id,
+                source_session_id=fact.source_session_id,
+                source_task_id=fact.source_task_id,
+                excerpt=(fact.summary or f"{fact.label}: {fact.value}")[:240],
             )
 
         for index, message in enumerate(task.context_layers.recent_messages[:4], start=1):
-            sources.append(
-                CitationSource(
-                    kind="session_message",
-                    label=f"会话消息 {index}",
-                    detail=message[:240],
-                    source_session_id=task.session_id,
-                    source_task_id=task.id,
-                    excerpt=message[:240],
-                )
+            cmap.add_source(
+                kind="session_message",
+                label=f"会话消息 {index}",
+                detail=message[:240],
+                source_session_id=task.session_id,
+                source_task_id=task.id,
+                excerpt=message[:240],
             )
 
         if task.context_layers.source_summary:
-            sources.append(
-                CitationSource(
-                    kind="source_summary",
-                    label="外部材料摘要",
-                    detail=task.context_layers.source_summary[:240],
-                    source_session_id=task.session_id,
-                    source_task_id=task.id,
-                    excerpt=task.context_layers.source_summary[:240],
-                )
+            cmap.add_source(
+                kind="source_summary",
+                label="外部材料摘要",
+                detail=task.context_layers.source_summary[:240],
+                source_session_id=task.session_id,
+                source_task_id=task.id,
+                excerpt=task.context_layers.source_summary[:240],
             )
 
-        return sources
+        # Build paragraph citations using the accumulated sources
+        if task.result:
+            self._build_paragraph_citations_into_map(task.result or "", cmap)
+
+        return cmap
+
+    def _build_citation_source_pool(self, task: TaskRecord) -> list[CitationSource]:
+        """Deprecated: use _build_citation_map instead. Returns list for backward compatibility."""
+        return self._build_citation_map(task).sources
 
     def _build_paragraph_citations(self, result_markdown: str, sources: list[CitationSource]) -> list[ParagraphCitation]:
+        """Deprecated: use _build_paragraph_citations_into_map instead."""
         if not result_markdown.strip() or not sources:
             return []
+        cmap = CitationMap()
+        for source in sources:
+            cmap.add_source(kind=source.kind, label=source.label, detail=source.detail,
+                           source_record_id=source.source_record_id,
+                           source_session_id=source.source_session_id,
+                           source_task_id=source.source_task_id, excerpt=source.excerpt)
+        self._build_paragraph_citations_into_map(result_markdown, cmap)
+        return cmap.paragraphs
+
+    def _build_paragraph_citations_into_map(self, result_markdown: str, cmap: CitationMap) -> None:
+        """Populate paragraph citations into an existing CitationMap using source scoring."""
+        if not result_markdown.strip() or not cmap.sources:
+            return
 
         body = self._extract_primary_result_body(result_markdown)
         paragraphs = self._extract_citation_paragraphs(body)
-        citations: list[ParagraphCitation] = []
 
         for index, paragraph in enumerate(paragraphs):
             scored = []
             paragraph_tokens = self._tokenize_for_citations(paragraph)
             normalized = paragraph.lower()
-            for source in sources:
+            for source in cmap.sources:
+                source_tokens = self._tokenize_for_citations(
+                    " ".join(filter(None, [source.label, source.detail, source.excerpt or ""]))
+                )
                 score = self._score_citation_source(paragraph_tokens, normalized, source)
                 if score > 0:
                     scored.append((score, source))
@@ -974,16 +953,12 @@ class AgentService:
             matched_sources = [item[1] for item in scored[:2]]
             if not matched_sources:
                 continue
-            citations.append(
-                ParagraphCitation(
-                    paragraph_index=index,
-                    paragraph_text=paragraph[:400],
-                    source_ids=[item.id for item in matched_sources],
-                    source_labels=[item.label for item in matched_sources],
-                )
+            cmap.add_paragraph(
+                paragraph_index=index,
+                paragraph_text=paragraph[:400],
+                source_ids=[item.id for item in matched_sources],
+                source_labels=[item.label for item in matched_sources],
             )
-
-        return citations
 
     def _extract_primary_result_body(self, result_markdown: str) -> str:
         payload = result_markdown.replace("\r\n", "\n")
@@ -1125,31 +1100,17 @@ class AgentService:
         task_id: str | None = None,
         session_title_hint: str | None = None,
     ) -> ChatMessage | None:
-        if not session_id or not content.strip():
-            return None
-        session = self.repository.get_session(session_id)
-        if session is None:
-            session = self.repository.save_session(ChatSession(id=session_id, title=(session_title_hint or "新对话")[:48]))
-        message = ChatMessage(session_id=session_id, role=role, content=content.strip(), task_id=task_id)
-        self.repository.save_session_message(message)
-        session.message_count += 1
-        if task_id:
-            session.last_task_id = task_id
-        self.repository.save_session(session)
-        return message
+        return self.session_store.append_message(
+            session_id, role, content, task_id=task_id, session_title_hint=session_title_hint
+        )
 
     def _touch_session(self, session_id: str | None, task: TaskRecord) -> None:
-        if not session_id:
-            return
-        session = self.repository.get_session(session_id)
-        if session is None:
-            return
-        session.last_task_id = task.id
-        if not session.title or session.title == "新对话":
-            session.title = task.title[:48]
-        if task.profile_hits:
-            session.profile_snapshot = [f"{item.label}: {item.value}" for item in task.profile_hits]
-        self.repository.save_session(session)
+        self.session_store.touch_session(
+            session_id,
+            last_task_id=task.id,
+            task_title=task.title,
+            profile_hits=task.profile_hits,
+        )
 
     def _extract_and_store_profile(self, task: TaskRecord, request: TaskCreateRequest) -> None:
         source_message = next((entry for entry in reversed(task.memory) if entry.kind == "user_goal"), None)
@@ -1189,28 +1150,6 @@ class AgentService:
         if context_layers.build_notes:
             parts.append("Context build notes:\n" + "\n".join(f"- {item}" for item in context_layers.build_notes))
         return "\n\n".join(parts).strip()
-
-    def _compress_session_context(self, session_id: str | None, *, force: bool = False) -> None:
-        if not session_id:
-            return
-        session = self.repository.get_session(session_id)
-        if session is None:
-            return
-        messages = self.repository.list_session_messages(session_id, limit=200)
-        if len(messages) <= 8 and not force:
-            return
-        older_messages = messages if force else messages[:-6]
-        if not older_messages:
-            return
-        payload = "\n".join(f"- {item.role.value}: {item.content[:300]}" for item in older_messages[-20:])
-        system_prompt, user_prompt = self.prompts.conversation_summary_messages(session.context_summary, payload)
-        summary = self.llm_client.generate_text(system_prompt=system_prompt, user_prompt=user_prompt).strip()
-        if not summary:
-            summary = payload[:1200]
-        session.context_summary = summary[:3000]
-        session.summary_updated_at = messages[-1].created_at if messages else session.updated_at
-        session.updated_at = messages[-1].created_at if messages else session.updated_at
-        self.repository.save_session(session)
 
     def _restore_request(self, task: TaskRecord | None) -> TaskCreateRequest | None:
         if task is None:
