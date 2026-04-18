@@ -1,81 +1,66 @@
 {
   "project": "Orion Agent",
   "branchName": "ralph/orion-agent-enterprise-evolution",
-  "description": "Advance Orion Agent from runtime refactor into platform-layer hardening with standardized tool metadata, citation mapping, session storage boundaries, and governed memory/profile flows.",
+  "description": "Continue Orion Agent toward an OpenClaw-style stable runtime core by hardening recovery state flow, context budget governance, tool permission context, and structured recovery trace payloads without sacrificing the current visual web console experience.",
   "userStories": [
     {
-      "id": "US-R6",
-      "title": "Harden ToolPool Metadata and Permission Pipeline",
-      "description": "As a platform maintainer, I want tool metadata to drive permission, timeout, retry, and frontend display behavior so future tool expansion does not rely on scattered hard-coded rules.",
+      "id": "US-R11",
+      "title": "Harden Recovery State Machine",
+      "description": "As a runtime maintainer, I want failure classification and recovery transitions to be expressed through a more explicit state machine so skip, retry, partial replan, and resume behavior are predictable and traceable.",
       "acceptanceCriteria": [
-        "Tool definitions expose stable metadata for category, display labels, permission level, timeout, and retry behavior",
-        "The main runtime path reads tool metadata from one source of truth rather than scattered literals",
-        "Frontend-facing tool details remain compatible or are improved without breaking current pages",
-        "Add or update backend tests for tool metadata and permission behavior",
-        "Run the matching backend unittest modules and frontend build if touched"
+        "Recovery-related transitions are modeled through clearer state and decision boundaries rather than scattered helper behavior",
+        "Skip-step and rebuild-remaining-plan behavior remain compatible or become stricter in a documented way",
+        "Task records retain enough structured recovery metadata for current APIs and UI consumers",
+        "Add or update focused backend unit tests for recovery transitions and fallback paths",
+        "Run the relevant backend unittest modules"
       ],
       "priority": 1,
       "passes": true,
       "notes": ""
     },
     {
-      "id": "US-R7",
-      "title": "Standardize Backend CitationMap",
-      "description": "As a product maintainer, I want paragraph-to-source mapping to be standardized in the backend so the frontend can render anchors and source hints without guessing relationships.",
+      "id": "US-R12",
+      "title": "Strengthen Context Budget and Compression Governance",
+      "description": "As a runtime maintainer, I want context layers to expose explicit budget usage, trimming reasons, and compression outputs so multi-turn sessions remain stable and debuggable.",
       "acceptanceCriteria": [
-        "Backend citation mapping covers paragraph anchors, source labels, and source kinds from one typed structure",
-        "Current memory, profile, session message, and source summary citations remain supported",
-        "Frontend consumers can keep using a stable citation payload with less UI-side inference",
-        "Add or update tests for citation source registration and paragraph mapping",
-        "Run matching backend unittest modules and frontend build if touched"
+        "Context building records clearer budget allocation, actual usage, and trimming or compression reasons per major layer",
+        "Multi-turn session summary and recent-message compression remain backward compatible with the current UI payload",
+        "At least the runtime path and context-related tests consume the structured budget or trimming metadata",
+        "Add or update backend unit tests for budget and compression metadata behavior",
+        "Run the relevant backend unittest modules"
       ],
       "priority": 2,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
-      "id": "US-R8",
-      "title": "Extract SessionStore Boundary",
-      "description": "As a maintainer, I want session creation, summary refresh, branch continuation, and trace lookup to live behind a session store boundary so conversation governance is easier to evolve safely.",
+      "id": "US-R13",
+      "title": "Unify ToolPool Permission Context",
+      "description": "As a platform maintainer, I want tool execution to emit a stable permission context model so frontend flows, approvals, and audits can rely on one source of truth for risk and approval state.",
       "acceptanceCriteria": [
-        "Introduce a dedicated session store or equivalent boundary for session persistence and retrieval flows",
-        "runtime_agent delegates key session operations through the new boundary",
-        "Existing session APIs remain compatible",
-        "Add focused unit coverage for session branching, summary refresh, and task linkage behavior",
-        "Run the relevant backend unittest modules"
+        "Tool execution records expose a stable permission context structure covering risk level, approval requirement, approval status, and runtime enforcement result",
+        "Restricted and confirmable tools keep current behavior while emitting richer structured metadata",
+        "Frontend-facing task details remain compatible or improve without relying on guessed approval semantics",
+        "Add or update backend tests for permission context emission and approval-related tool invocation behavior",
+        "Run the relevant backend unittest modules and frontend build if touched"
       ],
       "priority": 3,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
-      "id": "US-R9",
-      "title": "Layer Context Contracts and Trace Metadata",
-      "description": "As a maintainer, I want context layers to expose explicit source and budget trace metadata so debugging, recovery, and frontend explanation can rely on structured contracts instead of implicit strings.",
+      "id": "US-R14",
+      "title": "Standardize Recovery and Citation Trace Payloads",
+      "description": "As a product maintainer, I want recovery traces and citation traces to share a more consistent structured payload so the console can explain both answer sources and recovery decisions with less UI-side inference.",
       "acceptanceCriteria": [
-        "Context-related structures expose clearer source and budget metadata beyond plain assembled text",
-        "Context build notes and trace fields remain compatible with the current runtime and UI",
-        "At least the main runtime and execution-node path consume the structured context trace fields",
-        "Add or update backend tests for context trace and budget output",
-        "Run the relevant backend unittest modules"
-      ],
-      "priority": 4,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-R10",
-      "title": "Strengthen Memory and Profile Governance",
-      "description": "As a product maintainer, I want memory and profile records to expose stronger governance signals so recall quality, editing, traceability, and future multi-user isolation can evolve on a cleaner foundation.",
-      "acceptanceCriteria": [
-        "Memory and profile models expose clearer governance-oriented fields or boundaries needed by current flows",
-        "Recall and profile injection behavior do not regress",
-        "Editing and traceability surfaces remain intact or improve",
-        "Add or update backend tests for governed memory/profile behaviors",
+        "Recovery traces expose structured fields for failure type, strategy, attempts, and resume origin",
+        "Citation and recovery payloads align on stable source or trace identifiers where appropriate",
+        "Existing console and task detail consumers remain compatible or become simpler",
+        "Add or update backend tests for trace payload generation and frontend build if touched",
         "Run the matching backend unittest modules and frontend build if touched"
       ],
-      "priority": 5,
-      "passes": true,
+      "priority": 4,
+      "passes": false,
       "notes": ""
     }
   ]
