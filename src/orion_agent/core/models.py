@@ -481,6 +481,7 @@ class ReplanEvent(BaseModel):
     resume_from_step_id: str | None = None
     resume_from_step_name: str | None = None
     recovery_strategy: str = "replan"
+    recovery_attempts: int = 0  # Number of recovery attempts before this replan event
     created_at: datetime = Field(default_factory=utcnow)
 
 

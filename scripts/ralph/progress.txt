@@ -203,3 +203,10 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_profile_and_memory tests.unit.test_session_store ✓ (97 tests)；PYTHONPATH=src python -m unittest tests.unit.test_citation_map tests.unit.test_citation_runtime tests.unit.test_execution_engine_tool_calls ✓ (30 tests)；npm run build --prefix frontend ✓
 - 学到：RESTRICTED 工具被阻止时 approval_status 取决于是否有 open approval（pending_approvals 中 approved=None 的记录）；SAFE 工具不产生审批上下文，CONFIRM 工具视为隐式审批通过故 approval_status=APPROVED；_make_invocation 在构建成功/失败记录时根据 permission_level 设置统一的权限上下文。
 ---
+
+## 2026-04-18 07:30 - US-R14
+- 已标准化恢复和引用追踪载荷：ReplanEvent 新增 recovery_attempts 字段用于记录恢复尝试次数，完善 failure type（failure_category）、strategy（recovery_strategy）、attempts（recovery_attempts）、resume origin（resume_from_step_id/name）四个结构化字段；CitationSource 和 ReplanEvent 均采用 {type}_{8-char-hex} ID 格式，确保追踪标识符稳定一致。
+- 修改文件：src/orion_agent/core/models.py（ReplanEvent 新增 recovery_attempts 字段）
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_profile_and_memory tests.unit.test_session_store ✓ (97 tests)；PYTHONPATH=src python -m unittest tests.unit.test_citation_map tests.unit.test_citation_runtime tests.unit.test_execution_engine_tool_calls ✓ (30 tests)；npm run build --prefix frontend ✓
+- 学到：ReplanEvent 的 recovery_attempts 字段在创建恢复事件时填充，用于追踪恢复尝试次数；CitationSource 和 ReplanEvent ID 格式一致（cite_/replan_前缀 + 8位十六进制），保证追踪链路可串联。
+---
