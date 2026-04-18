@@ -143,8 +143,17 @@ Started: 2026-04-17
 ---
 
 ## 2026-04-18 04:00 - US-R6
-- 已强化 ToolPool 元数据和权限管道：ToolInvocation 新增 category/display_name/display_label/permission_level/timeout_ms 字段；execution_engine._call_tool 传递 timeout_ms 至 registry.invoke 并在所有 ToolInvocation 中捕获元数据；RESTRICTED 工具在无审批记录时创建 PendingApproval 并抛出权限拒绝异常。
-- 修改文件：src/orion_agent/core/models.py（ToolInvocation 新增字段）、src/orion_agent/core/execution_engine.py（_call_tool 更新元数据捕获和权限检查）、tests/unit/test_execution_engine_tool_calls.py（新增 6 个测试）
-- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_execution_engine_tool_calls tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_context_builder ✓ (46 tests)；npm run build ✓
-- 学到：ToolInvocation 的元数据字段在调用时从 definition 快照捕获，确保前端始终可访问一致的 tool metadata；RESTRICTED 权限需在 pending_approvals 中存在 approved=True 的记录才允许执行。
+- 已强化 ToolPool 元数据和权限管道：ToolDefinition.effective_timeout_ms 属性确保 timeout_ms 最小为 1000ms；_call_tool 将 effective_timeout_ms 传递至 registry.invoke；RESTRICTED 工具在无已审批记录时创建 PendingApproval 并抛出 PERMISSION_DENIED 异常；_localize_step_name 优先使用工具的 display_label 而非硬编码映射；ToolInvocation 捕获 category/display_name/display_label/permission_level/timeout_ms 元数据。
+- 新增文件：src/orion_agent/core/citation_map.py（US-R5 已引入）
+- 修改文件：src/orion_agent/core/models.py（ToolDefinition.effective_timeout_ms、ToolInvocation 新增元数字段）、src/orion_agent/core/execution_engine.py（_call_tool 权限检查和超时传递、_localize_step_name 工具元数据优先）、src/orion_agent/core/tools.py（invoke 接受 timeout_ms 参数，_web_search_with_timeout 使用超时）
+- 质量检查：PYTHONPATH=src python -m unittest 79 tests ✓；npm run build ✓
+- 学到：RESTRICTED 权限检查使用 existing_final_approval = any(approval.tool_name == tool_name and approval.approved is not None)，已审批的 approval.approved is not None 不再触发阻止；timeout_ms 通过 registry.invoke(tool_name, timeout_ms=...) 传递，非侵入式设计。
+---
+
+## 2026-04-18 04:30 - US-R7
+- 已标准化后端引用映射：markdownUtils.tsx 的 toChineseSourceKind 已更新为覆盖 backend CITATION_KINDS 所有 key（memory、profile、session_message、source_summary、web_search、file），解决 session_message 与 session 的映射不匹配问题；新增 test_citation_runtime.py 集成测试，覆盖 _build_citation_map 全流程验证（空任务、所有引用类型注册、段落引用生成、result_citations 写入 task record、frontend/backend kind 对齐）。
+- 新增文件：tests/unit/test_citation_runtime.py
+- 修改文件：frontend/src/markdownUtils.tsx（toChineseSourceKind 更新）
+- 质量检查：PYTHONPATH=src python -m unittest test_citation_runtime test_citation_map test_execution_nodes ✓ (15 tests)；npm run build ✓
+- 学到：backend 的 session_message kind 在 frontend 曾误写为 session，导致回落值为 raw kind；所有 CITATION_KINDS keys 必须与 frontend toChineseSourceKind map 对齐才能保证引用标签正确显示；_build_citation_map 是纯函数，仅依赖 task 数据不依赖外部服务。
 ---

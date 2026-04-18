@@ -30,7 +30,7 @@
         "Run matching backend unittest modules and frontend build if touched"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

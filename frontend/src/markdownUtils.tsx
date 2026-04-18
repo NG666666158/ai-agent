@@ -5,9 +5,10 @@ export function toChineseSourceKind(kind: string): string {
   const map: Record<string, string> = {
     memory: "记忆",
     profile: "画像",
-    session: "会话",
-    user: "用户",
-    system: "系统",
+    session_message: "会话消息",
+    source_summary: "外部材料摘要",
+    web_search: "网络搜索",
+    file: "本地文件",
   };
   return map[kind] ?? kind;
 }
