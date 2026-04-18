@@ -1,9 +1,12 @@
 import unittest
 from datetime import UTC, datetime
 
+from orion_agent.core.config import get_settings
+from orion_agent.core.llm_runtime import FallbackLLMClient
 from orion_agent.core.models import (
     FailureCategory,
     ParsedGoal,
+    ReplanReason,
     Step,
     StepStatus,
     TaskCheckpoint,
@@ -13,6 +16,8 @@ from orion_agent.core.models import (
     ToolCallStatus,
     ToolInvocation,
 )
+from orion_agent.core.repository import TaskRepository
+from orion_agent.core.runtime_agent import AgentService
 
 
 class RecoveryFlowTests(unittest.TestCase):
@@ -99,6 +104,32 @@ class RecoveryFlowTests(unittest.TestCase):
         self.assertEqual(event.resume_from_step_id, "step_2")
         self.assertEqual(event.recovery_strategy, "replan_remaining_steps")
         self.assertEqual(event.failure_category, FailureCategory.TOOL_TIMEOUT)
+
+    def test_mark_task_for_replan_persists_recovery_attempts(self) -> None:
+        # ReplanEvent should persist the checkpoint recovery_attempt value.
+        service = AgentService(
+            repository=TaskRepository(),
+            settings=get_settings(),
+            llm_client=FallbackLLMClient(),
+        )
+        task = self._build_task_with_failed_step()
+        task.checkpoint.recovery_attempt = 3
+
+        service._mark_task_for_replan(
+            task,
+            reason=ReplanReason.TOOL_FAILURE,
+            summary="tool failed, replanning",
+            detail="timeout after retries",
+            failure_category=FailureCategory.TOOL_TIMEOUT,
+            resume_from_step_id="step_2",
+            resume_from_step_name="Web Research",
+        )
+
+        self.assertTrue(task.replan_history)
+        event = task.replan_history[-1]
+        self.assertEqual(event.recovery_attempts, 3)
+        self.assertEqual(event.resume_from_step_id, "step_2")
+        self.assertEqual(event.resume_from_step_name, "Web Research")
 
     def test_checkpoint_tracks_recovery_attempt(self) -> None:
         # TaskCheckpoint.recovery_attempt should be incremented on each recovery.

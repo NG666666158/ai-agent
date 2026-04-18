@@ -1202,6 +1202,7 @@ class AgentService:
                 resume_from_step_id=resume_from_step_id,
                 resume_from_step_name=resume_from_step_name,
                 recovery_strategy="revise_current_result" if reason == ReplanReason.REVIEW_FEEDBACK else "rebuild_plan_or_retry",
+                recovery_attempts=task.checkpoint.recovery_attempt,
             )
         )
         self._update_checkpoint(

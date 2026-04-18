@@ -215,7 +215,7 @@ class RecoveryStateMachine:
         resolution = self._policy.classify_failure_resolution(task, category)
 
         next_state = self._resolution_to_state(resolution)
-        if next_state == RecoveryState.RETRYING and not self.can_retry():
+        if next_state == RecoveryState.RETRYING and not self.can_retry(task):
             # Exhausted retry budget — escalate to full replan
             next_state = RecoveryState.REPLANNING_FULL
 
@@ -231,9 +231,11 @@ class RecoveryStateMachine:
         """Reset state machine to HEALTHY after successful recovery."""
         self._current_state = RecoveryState.HEALTHY
 
-    def can_retry(self) -> bool:
+    def can_retry(self, task: TaskRecord | None = None) -> bool:
         """Return True if retry attempts remain within the configured limit."""
-        return True  # Caller tracks recovery_attempt via task.checkpoint
+        if task is None:
+            return self._settings.execution_recovery_retries > 0
+        return task.checkpoint.recovery_attempt < self._settings.execution_recovery_retries
 
     def _resolution_to_state(self, resolution: FailureResolution) -> RecoveryState:
         """Map a FailureResolution to the corresponding RecoveryState."""

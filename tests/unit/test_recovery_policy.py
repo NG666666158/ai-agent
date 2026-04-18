@@ -433,6 +433,20 @@ class RecoveryStateMachineTests(unittest.TestCase):
         machine.reset_to_healthy()
         self.assertFalse(machine.is_recovering)
 
+    def test_retry_budget_escalates_to_full_replan_when_exhausted(self) -> None:
+        # 场景：恢复重试次数已耗尽时，内部错误不应继续进入 RETRYING，而应升级为 REPLANNING_FULL。
+        settings = get_settings()
+        settings.execution_recovery_retries = 1
+        policy = RecoveryPolicy(settings)
+        machine = RecoveryStateMachine(policy, settings)
+        task = self._task_with_failed_step(tool_name="custom_tool")
+        task.checkpoint.recovery_attempt = 1
+
+        next_state = machine.transition(task, FailureCategory.INTERNAL_ERROR)
+
+        self.assertEqual(next_state, RecoveryState.REPLANNING_FULL)
+        self.assertEqual(machine.current_state, RecoveryState.REPLANNING_FULL)
+
 
 if __name__ == "__main__":
     unittest.main()

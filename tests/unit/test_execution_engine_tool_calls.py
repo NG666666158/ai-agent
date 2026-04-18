@@ -9,6 +9,8 @@ from orion_agent.core.execution_engine import ExecutionEngine
 from orion_agent.core.llm_runtime import FallbackLLMClient
 from orion_agent.core.memory import TaskMemoryManager
 from orion_agent.core.models import (
+    ApprovalStatus,
+    EnforcementResult,
     FailureCategory,
     PendingApproval,
     ParsedGoal,
@@ -41,6 +43,9 @@ class ExecutionEngineToolCallTests(unittest.TestCase):
         self.assertEqual(output, "abc")
         self.assertEqual(task.tool_invocations[-1].status.value, "SUCCESS")
         self.assertEqual(task.failure_category, FailureCategory.NONE)
+        self.assertFalse(task.tool_invocations[-1].approval_required)
+        self.assertEqual(task.tool_invocations[-1].approval_status, ApprovalStatus.NOT_REQUIRED)
+        self.assertEqual(task.tool_invocations[-1].enforcement_result, EnforcementResult.ALLOWED)
 
     def test_call_tool_records_error_invocation_with_failure_category(self) -> None:
         task = TaskRecord(title="tool fail")
@@ -150,6 +155,9 @@ class ExecutionEngineToolMetadataTests(unittest.TestCase):
             self.assertEqual(invocation.failure_category, FailureCategory.PERMISSION_DENIED)
             self.assertEqual(invocation.category, "search")
             self.assertEqual(invocation.permission_level, ToolPermission.RESTRICTED)
+            self.assertTrue(invocation.approval_required)
+            self.assertEqual(invocation.approval_status, ApprovalStatus.PENDING)
+            self.assertEqual(invocation.enforcement_result, EnforcementResult.BLOCKED)
         finally:
             self.engine.tool_registry._definitions["web_search"] = original_def
 
@@ -225,6 +233,7 @@ class ExecutionEngineToolMetadataTests(unittest.TestCase):
 
             self.assertEqual(ctx.exception.category, FailureCategory.PERMISSION_DENIED)
             self.assertEqual(task.tool_invocations[-1].status, ToolCallStatus.ERROR)
+            self.assertEqual(task.tool_invocations[-1].approval_status, ApprovalStatus.DENIED)
         finally:
             self.engine.tool_registry._definitions["web_search"] = original_def
 

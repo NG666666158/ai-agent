@@ -62,7 +62,12 @@ class ContextBuilder:
 
         # recent_messages
         raw_recent = list(session_context["recent_messages"])
-        recent_messages_trim_reason = TrimReason.TRUNCATED if any(len(m) > 240 for m in raw_recent) else TrimReason.NONE
+        if len(raw_recent) > budget["recent_messages"]:
+            recent_messages_trim_reason = TrimReason.FILTERED
+        elif any(len(m) > 240 for m in raw_recent):
+            recent_messages_trim_reason = TrimReason.TRUNCATED
+        else:
+            recent_messages_trim_reason = TrimReason.NONE
         recent_messages = [self._trim_text(item, 240) for item in raw_recent[: budget["recent_messages"]]]
         trace_entries.append(
             ContextTraceEntry(
@@ -191,7 +196,7 @@ class ContextBuilder:
                 "profile_facts": self._profile_manager.snapshot(limit=6),
             }
         messages = self._repository.list_session_messages(session_id, limit=12)
-        recent_messages = [f"{item.role.value}: {item.content[:240]}" for item in messages[-6:]]
+        recent_messages = [f"{item.role.value}: {item.content}" for item in messages]
         profile_facts = session.profile_snapshot or self._profile_manager.snapshot(limit=6)
         return {
             "session_summary": session.context_summary.strip(),

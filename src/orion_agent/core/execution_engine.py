@@ -458,7 +458,10 @@ class ExecutionEngine:
                         permission_level=definition.permission_level,
                         timeout_ms=definition.effective_timeout_ms,
                         approval_required=True,
-                        approval_status=ApprovalStatus.PENDING if has_open_approval else ApprovalStatus.DENIED,
+                        approval_status=ApprovalStatus.PENDING if not any(
+                            approval.tool_name == tool_name and approval.approved is False
+                            for approval in task.pending_approvals
+                        ) else ApprovalStatus.DENIED,
                         enforcement_result=EnforcementResult.BLOCKED,
                     )
                 )
@@ -501,7 +504,7 @@ class ExecutionEngine:
             # RESTRICTED: approval required and was explicitly granted to reach this point.
             is_approval_required = definition.permission_level != ToolPermission.SAFE
             approval_status: ApprovalStatus | None = (
-                ApprovalStatus.APPROVED if is_approval_required else None
+                ApprovalStatus.APPROVED if is_approval_required else ApprovalStatus.NOT_REQUIRED
             )
             return ToolInvocation(
                 step_id=step_id,

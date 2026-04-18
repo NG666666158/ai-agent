@@ -21,6 +21,7 @@ from orion_agent.core.models import (
     ContextBudgetUsage,
     ContextTraceEntry,
     TaskCreateRequest,
+    TrimReason,
 )
 
 
@@ -45,6 +46,11 @@ class StubRepository:
 
     def list_session_messages(self, session_id: str, limit: int = 100) -> list[ChatMessage]:
         return self._messages[-limit:]
+
+
+class UnboundedMessageRepository(StubRepository):
+    def list_session_messages(self, session_id: str, limit: int = 100) -> list[ChatMessage]:
+        return list(self._messages)
 
 
 class ContextBuilderTests(unittest.TestCase):
@@ -132,7 +138,7 @@ class ContextBuilderTests(unittest.TestCase):
             ChatMessage(session_id="s_abc", role=ChatMessageRole.USER, content="用户消息", created_at=base_time),
         ]
         profile_mgr = StubProfileManager()
-        repo = StubRepository(session=session, messages=messages)
+        repo = UnboundedMessageRepository(session=session, messages=messages)
         builder = ContextBuilder(profile_mgr, repo)
 
         request = TaskCreateRequest(goal="测试", session_id="s_abc")
@@ -204,6 +210,23 @@ class ContextBuilderTests(unittest.TestCase):
 
         self.assertEqual(len(result), 20)
         self.assertEqual(result[-1], "…")
+
+    def test_recent_messages_trim_reason_marks_filtered_when_count_exceeds_budget(self) -> None:
+        # 场景：recent_messages 超过条数预算时，应标记为 FILTERED，而不是 NONE。
+        base_time = datetime(2026, 4, 18, 12, 0, tzinfo=UTC)
+        session = ChatSession(id="s_budget", title="Budget", context_summary="")
+        messages = [
+            ChatMessage(session_id="s_budget", role=ChatMessageRole.USER, content=f"消息 {idx}", created_at=base_time)
+            for idx in range(CONTEXT_BUDGET["recent_messages"] + 2)
+        ]
+        profile_mgr = StubProfileManager()
+        repo = StubRepository(session=session, messages=messages)
+        builder = ContextBuilder(profile_mgr, repo)
+
+        request = TaskCreateRequest(goal="测试 recent messages 裁剪", session_id="s_budget")
+        ctx = builder.build(request)
+
+        self.assertEqual(ctx.budget_usage.recent_messages_trim_reason, TrimReason.FILTERED)
 
 
 if __name__ == "__main__":
