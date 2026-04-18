@@ -357,6 +357,21 @@ class ContextTraceEntry(BaseModel):
     timestamp: datetime = Field(default_factory=utcnow)
 
 
+class TrimReason(str, Enum):
+    """Reason why a context layer was trimmed or compressed.
+
+    NONE: No trimming applied, content fit within limit.
+    TRUNCATED: Text was cut due to character limit exceeded.
+    COMPRESSED: Items were reduced in count (e.g., condensed messages).
+    FILTERED: Items were removed due to deduplication or other filtering.
+    """
+
+    NONE = "NONE"
+    TRUNCATED = "TRUNCATED"
+    COMPRESSED = "COMPRESSED"
+    FILTERED = "FILTERED"
+
+
 class ContextBudgetUsage(BaseModel):
     """Structured budget usage tracking for context layers.
 
@@ -366,18 +381,25 @@ class ContextBudgetUsage(BaseModel):
 
     session_summary_limit: int = 0
     session_summary_used: int = 0
+    session_summary_trim_reason: TrimReason = TrimReason.NONE
     recent_messages_limit: int = 0
     recent_messages_count: int = 0
+    recent_messages_trim_reason: TrimReason = TrimReason.NONE
     condensed_recent_messages_limit: int = 0
     condensed_recent_messages_count: int = 0
+    condensed_recent_messages_trim_reason: TrimReason = TrimReason.NONE
     recalled_memories_limit: int = 0
     recalled_memories_count: int = 0
+    recalled_memories_trim_reason: TrimReason = TrimReason.NONE
     profile_facts_limit: int = 0
     profile_facts_count: int = 0
+    profile_facts_trim_reason: TrimReason = TrimReason.NONE
     working_memory_limit: int = 0
     working_memory_count: int = 0
+    working_memory_trim_reason: TrimReason = TrimReason.NONE
     source_summary_limit: int = 0
     source_summary_used: int = 0
+    source_summary_trim_reason: TrimReason = TrimReason.NONE
 
 
 class ContextLayer(BaseModel):

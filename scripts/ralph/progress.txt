@@ -189,3 +189,10 @@ Started: 2026-04-17
 - 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_recovery_policy ✓ (30 tests)；PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_profile_and_memory tests.unit.test_session_store ✓ (97 tests)；npm run build --prefix frontend ✓
 - 学到：FAILED 是终端状态（_STATE_TRANSITIONS[FAILED] = set()）；can_replan_remaining_steps 对第一步失败返回 False（因为 failed_index=0），此时走 REPLAN_FROM_CHECKPOINT；RETRYING 可以 escalation 到 SKIPPING（重试失败后降级跳过）是合法路径；state_description() 提供中文状态描述供 UI 使用。
 ---
+
+## 2026-04-18 06:30 - US-R12
+- 已强化上下文预算和压缩治理：新增 TrimReason 枚举（NONE/TRUNCATED/COMPRESSED/FILTERED）用于标识每层上下文的裁剪原因；ContextBudgetUsage 新增每层 trim_reason 字段（session_summary_trim_reason、recent_messages_trim_reason、condensed_recent_messages_trim_reason、profile_facts_trim_reason、working_memory_trim_reason、source_summary_trim_reason、recalled_memories_trim_reason）；ContextBuilder.build() 在裁剪时自动设置各层的 trim_reason 并在 trace_entries.message 中记录原因。
+- 修改文件：src/orion_agent/core/models.py（新增 TrimReason 枚举和 ContextBudgetUsage 各层 trim_reason 字段）、src/orion_agent/core/context_builder.py（build() 自动追踪并设置各层裁剪原因）
+- 质量检查：PYTHONPATH=src python -m unittest tests.unit.test_context_builder ✓ (8 tests)；PYTHONPATH=src python -m unittest tests.unit.test_execution_nodes tests.unit.test_state_machine tests.unit.test_recovery_flow tests.unit.test_context_builder tests.unit.test_execution_registry tests.unit.test_recovery_policy tests.unit.test_profile_and_memory tests.unit.test_session_store ✓ (97 tests)；npm run build --prefix frontend ✓
+- 学到：TRUNCATED 表示文本因字符超限被截断；COMPRESSED 表示条目数量被压缩（如 condense 从 6 条减至 3 条）；recalled_memories_trim_reason 在 ContextBuilder.build() 时初始化为 NONE，由 runtime_agent 在召回后更新。
+---

@@ -14,6 +14,7 @@ from orion_agent.core.models import (
     ContextLayer,
     ContextTraceEntry,
     TaskCreateRequest,
+    TrimReason,
     utcnow,
 )
 
@@ -47,53 +48,57 @@ class ContextBuilder:
         now = utcnow()
 
         # session_summary
-        session_summary_text = self._trim_text(str(session_context["session_summary"]), budget["session_summary"])
+        original_summary = str(session_context["session_summary"])
+        session_summary_trim_reason = TrimReason.TRUNCATED if len(original_summary) > budget["session_summary"] else TrimReason.NONE
+        session_summary_text = self._trim_text(original_summary, budget["session_summary"])
         trace_entries.append(
             ContextTraceEntry(
                 layer="session_summary",
                 source="session",
                 source_id=request.session_id,
-                message=f"limit={budget['session_summary']} chars, used={len(session_summary_text)}",
+                message=f"limit={budget['session_summary']} chars, used={len(session_summary_text)}, reason={session_summary_trim_reason.value}",
             )
         )
 
         # recent_messages
-        raw_recent = list(session_context["recent_messages"])[: budget["recent_messages"]]
-        recent_messages = [self._trim_text(item, 240) for item in raw_recent]
+        raw_recent = list(session_context["recent_messages"])
+        recent_messages_trim_reason = TrimReason.TRUNCATED if any(len(m) > 240 for m in raw_recent) else TrimReason.NONE
+        recent_messages = [self._trim_text(item, 240) for item in raw_recent[: budget["recent_messages"]]]
         trace_entries.append(
             ContextTraceEntry(
                 layer="recent_messages",
                 source="session_messages",
                 source_id=request.session_id,
-                message=f"limit={budget['recent_messages']}, count={len(recent_messages)}",
+                message=f"limit={budget['recent_messages']}, count={len(recent_messages)}, reason={recent_messages_trim_reason.value}",
             )
         )
 
-        # condensed_recent_messages
-        condensed_raw = recent_messages[: budget["condensed_recent_messages"]]
-        condensed_recent_messages = [self._trim_text(item, 120) for item in condensed_raw]
+        # condensed_recent_messages (compression step)
+        condensed_recent_messages_trim_reason = TrimReason.COMPRESSED if len(recent_messages) > budget["condensed_recent_messages"] else TrimReason.NONE
+        condensed_recent_messages = [self._trim_text(item, 120) for item in recent_messages[: budget["condensed_recent_messages"]]]
         trace_entries.append(
             ContextTraceEntry(
                 layer="condensed_recent_messages",
                 source="session_messages",
                 source_id=request.session_id,
-                message=f"limit={budget['condensed_recent_messages']}, count={len(condensed_recent_messages)}",
+                message=f"limit={budget['condensed_recent_messages']}, count={len(condensed_recent_messages)}, reason={condensed_recent_messages_trim_reason.value}",
             )
         )
 
         # profile_facts
-        raw_profile = list(session_context["profile_facts"])[: budget["profile_facts"]]
-        profile_facts = [self._trim_text(item, 120) for item in raw_profile]
+        raw_profile = list(session_context["profile_facts"])
+        profile_facts_trim_reason = TrimReason.TRUNCATED if len(raw_profile) > budget["profile_facts"] else TrimReason.NONE
+        profile_facts = [self._trim_text(item, 120) for item in raw_profile[: budget["profile_facts"]]]
         trace_entries.append(
             ContextTraceEntry(
                 layer="profile_facts",
                 source="user_profile",
                 source_id=None,
-                message=f"limit={budget['profile_facts']}, count={len(profile_facts)}",
+                message=f"limit={budget['profile_facts']}, count={len(profile_facts)}, reason={profile_facts_trim_reason.value}",
             )
         )
 
-        # working_memory
+        # working_memory (always fits in limit, no trimming needed)
         working_raw = [
             f"goal={request.goal}",
             f"expected_output={request.expected_output}",
@@ -110,32 +115,41 @@ class ContextBuilder:
         )
 
         # source_summary
-        source_summary_text = self._trim_text(request.source_text or "", budget["source_summary"])
+        original_source = request.source_text or ""
+        source_summary_trim_reason = TrimReason.TRUNCATED if len(original_source) > budget["source_summary"] else TrimReason.NONE
+        source_summary_text = self._trim_text(original_source, budget["source_summary"])
         trace_entries.append(
             ContextTraceEntry(
                 layer="source_summary",
                 source="task_request",
                 source_id=None,
-                message=f"limit={budget['source_summary']} chars, used={len(source_summary_text)}",
+                message=f"limit={budget['source_summary']} chars, used={len(source_summary_text)}, reason={source_summary_trim_reason.value}",
             )
         )
 
-        # budget usage
+        # budget usage with trimming reasons
         budget_usage = ContextBudgetUsage(
             session_summary_limit=budget["session_summary"],
             session_summary_used=len(session_summary_text),
+            session_summary_trim_reason=session_summary_trim_reason,
             recent_messages_limit=budget["recent_messages"],
             recent_messages_count=len(recent_messages),
+            recent_messages_trim_reason=recent_messages_trim_reason,
             condensed_recent_messages_limit=budget["condensed_recent_messages"],
             condensed_recent_messages_count=len(condensed_recent_messages),
+            condensed_recent_messages_trim_reason=condensed_recent_messages_trim_reason,
             recalled_memories_limit=budget["recalled_memories"],
             recalled_memories_count=0,  # filled by runtime after recall
+            recalled_memories_trim_reason=TrimReason.NONE,  # set by runtime after memory recall
             profile_facts_limit=budget["profile_facts"],
             profile_facts_count=len(profile_facts),
+            profile_facts_trim_reason=profile_facts_trim_reason,
             working_memory_limit=budget["working_memory"],
             working_memory_count=len(working_memory),
+            working_memory_trim_reason=TrimReason.NONE,  # working_memory is constructed from request, always fits
             source_summary_limit=budget["source_summary"],
             source_summary_used=len(source_summary_text),
+            source_summary_trim_reason=source_summary_trim_reason,
         )
 
         # legacy build_notes still produced for backward compatibility
