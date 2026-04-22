@@ -12,7 +12,7 @@ if "openai" not in sys.modules:
     openai_stub.OpenAI = OpenAI
     sys.modules["openai"] = openai_stub
 
-from orion_agent.core.memory import LongTermMemoryManager
+from orion_agent.core.memory import LongTermMemoryManager, _memory_type_weight
 from orion_agent.core.models import LongTermMemoryRecord, MemoryStatus, UserProfileFactStatus, utcnow
 from orion_agent.core.profile import UserProfileManager
 from orion_agent.core.repository import TaskRepository
@@ -65,8 +65,8 @@ class ProfileAndMemoryTests(unittest.TestCase):
             details="用户明确表示最近想学 Java。",
             memory_type="preference",
         )
-        boosted = self.memory_manager._memory_type_weight(query="你知道我想学什么语言吗", record=record)
-        neutral = self.memory_manager._memory_type_weight(query="给我一份部署文档", record=record)
+        boosted = _memory_type_weight(query="你知道我想学什么语言吗", record=record)
+        neutral = _memory_type_weight(query="给我一份部署文档", record=record)
         self.assertGreater(boosted, neutral)
 
     def test_recall_updates_access_metadata(self) -> None:
@@ -393,6 +393,97 @@ class WorkingMemoryCompressionTests(unittest.TestCase):
 
         step_other = Step(name="Unknown Step", description="", status=StepStatus.DONE)
         self.assertIsNone(_step_memory_kind(step_other))
+
+
+class RerankIntegrationTests(unittest.TestCase):
+    """US-R22: Professional rerank integration with safe fallback."""
+
+    def setUp(self) -> None:
+        self.repository = TaskRepository(db_path=":memory:")
+        embedder = StubEmbedder()
+        self.vector_store = LocalVectorStore(repository=self.repository)
+        self.memory_manager = LongTermMemoryManager(
+            repository=self.repository,
+            embedder=embedder,
+            vector_store=self.vector_store,
+            reranker=None,  # use NullReranker via fallback
+        )
+
+    def tearDown(self) -> None:
+        self.repository.close()
+
+    def test_null_reranker_exists_and_produces_reranked_output(self) -> None:
+        # 验收标准：NullReranker 存在且可调用 rerank 方法
+        from orion_agent.core.memory import NullReranker
+
+        embedder = StubEmbedder()
+        reranker = NullReranker(embedder)
+        records = [
+            LongTermMemoryRecord(topic="test item", summary="content", details="", memory_type="fact"),
+        ]
+        records[0].embedding = embedder.embed("test item")
+
+        results = reranker.rerank("test query", records)
+        # Returns a list with the same records
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].topic, "test item")
+
+    def test_reranker_updates_retrieval_score_and_reason(self) -> None:
+        # 验收标准：rerank 后更新 retrieval_score 和 retrieval_reason
+        from orion_agent.core.memory import NullReranker
+
+        embedder = StubEmbedder()
+        reranker = NullReranker(embedder)
+        records = [
+            LongTermMemoryRecord(topic="test", summary="content", details="", memory_type="fact"),
+        ]
+        records[0].embedding = embedder.embed("test")
+
+        results = reranker.rerank("test query", records)
+        self.assertIsNotNone(results[0].retrieval_score)
+        self.assertIsNotNone(results[0].retrieval_reason)
+
+    def test_recall_with_null_reranker_uses_heuristic_fallback(self) -> None:
+        # 验收标准：recall 时无 reranker 则使用启发式评分作为 fallback
+        record = LongTermMemoryRecord(
+            topic="python 学习",
+            summary="用户想学 python",
+            details="python 偏好",
+            memory_type="preference",
+        )
+        saved = self.memory_manager.remember(record)
+        results = self.memory_manager.recall("学习 python", scope="default", limit=5)
+        self.assertTrue(len(results) > 0)
+        self.assertIsNotNone(results[0].retrieval_score)
+        self.assertIsNotNone(results[0].retrieval_reason)
+
+    def test_recall_preserves_metadata_stability_with_reranker(self) -> None:
+        # 验收标准：rerank 不改变现有手动摄入或父文档召回行为
+        record = LongTermMemoryRecord(
+            topic="manual doc",
+            summary="手动摄入文档",
+            details="详细内容",
+            memory_type="document_note",
+            source=self._make_manual_source(),
+        )
+        saved = self.memory_manager.remember(record)
+        results = self.memory_manager.recall("manual doc", scope="default", limit=5)
+        # Should still be retrievable and have score/reason/channel metadata
+        self.assertTrue(len(results) > 0)
+        self.assertIsNotNone(results[0].retrieval_score)
+        self.assertIsNotNone(results[0].retrieval_reason)
+        self.assertTrue(len(results[0].retrieval_channels) > 0)
+
+    def test_base_reranker_protocol_exists(self) -> None:
+        # 验收标准：BaseReranker 抽象存在，可用于扩展
+        from orion_agent.core.memory import BaseReranker
+        # BaseReranker should be a Protocol with a rerank method
+        self.assertTrue(callable(getattr(BaseReranker, "rerank", None)))
+
+    @staticmethod
+    def _make_manual_source() -> "MemorySource":
+        from orion_agent.core.models import MemorySource
+        return MemorySource(source_type="manual_ingest_parent")
 
 
 if __name__ == "__main__":

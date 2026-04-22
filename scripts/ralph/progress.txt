@@ -2,6 +2,16 @@
 Started: 2026-04-22T08:57:38
 ---
 
+## 2026-04-22T10:30:00 - US-R22
+- Introduced BaseReranker Protocol and NullReranker for dedicated rerank stage with safe fallback
+- Extracted heuristic scoring into module-level _heuristic_score(), _tokenize(), _memory_type_weight() for reuse by NullReranker
+- LongTermMemoryManager now accepts optional reranker; applies rerank after heuristic scoring when configured
+- Updated LongTermMemoryManager constructor signature (reranker=None for backward compatibility)
+- Files changed: src/orion_agent/core/memory.py, tests/unit/test_profile_and_memory.py
+- Quality checks: pytest tests/unit/test_profile_and_memory.py (27 passed)
+- Learnings: cosine_similarity is a dot product (not normalized) in this codebase; StubEmbedder produces unreliable ordering
+---
+
 ## 2026-04-22T10:00:00 - US-R21
 - Added discardable field to MemoryEntry model
 - Added _summarize_step() to ExecutionEngine that marks raw entries discardable and writes compact summary

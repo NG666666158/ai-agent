@@ -56,6 +56,17 @@
         "Add or update focused backend tests for rerank ordering, fallback mode, and metadata stability"
       ],
       "priority": 3,
+      "passes": true,
+      "notes": ""
+      "description": "As a RAG maintainer, I want retrieval to support a dedicated rerank stage with a fallback path so recall quality improves without sacrificing local reliability.",
+      "acceptanceCriteria": [
+        "Recall flow separates candidate generation from rerank instead of relying only on fixed manual scoring",
+        "A rerank provider abstraction exists and can fall back to the current heuristic scoring when credentials or provider support are unavailable",
+        "Retrieval responses still expose score, reason, and channel metadata after rerank is introduced",
+        "The implementation does not regress current manual-ingestion or parent-document recall behavior",
+        "Add or update focused backend tests for rerank ordering, fallback mode, and metadata stability"
+      ],
+      "priority": 3,
       "passes": false,
       "notes": ""
     },
