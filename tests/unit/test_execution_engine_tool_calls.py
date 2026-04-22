@@ -384,7 +384,8 @@ class ExecutionEngineToolMetadataTests(unittest.TestCase):
         request = TaskCreateRequest(goal="生成交付文档", expected_output="markdown", enable_web_search=False)
         parsed_goal = ParsedGoal(goal="生成交付文档", expected_output="markdown", deliverable_title="测试交付件")
         output = self.engine._generate_deliverable(task, parsed_goal, request, [])
-        self.assertIn("# 测试交付件", output)
+        self.assertNotIn("# 测试交付件", output)
+        self.assertTrue(output.strip())
         self.assertTrue(any(call.tool_name == "generate_markdown" for call in task.tool_invocations))
 
     def test_generate_deliverable_streams_live_draft_updates(self) -> None:
@@ -405,9 +406,44 @@ class ExecutionEngineToolMetadataTests(unittest.TestCase):
         )
 
         self.assertTrue(snapshots)
-        normalized_snapshot = self.engine._normalize_deliverable_draft(snapshots[-1])
+        normalized_snapshot = self.engine._normalize_deliverable_draft(
+            snapshots[-1],
+            title=parsed_goal.deliverable_title,
+        )
         self.assertEqual(normalized_snapshot, task.tool_invocations[-1].input_payload["sections"][0]["content"])
-        self.assertTrue("## 回答正文" in output or "## Deliverable" in output)
+        self.assertNotIn("## 回答正文", output)
+        self.assertNotIn("## Deliverable", output)
+        self.assertNotIn("## 工具调用", output)
+
+
+    def test_normalize_deliverable_draft_strips_nested_headings_and_tool_sections(self) -> None:
+        draft = (
+            "# 小故事\n\n"
+            "## 回答正文\n\n"
+            "## 小故事\n\n"
+            "这是一段正文。\n\n"
+            "## 工具调用\n"
+            "- generate_markdown (SUCCESS): ...\n"
+        )
+
+        normalized = self.engine._normalize_deliverable_draft(draft, title="小故事")
+
+        self.assertEqual(normalized, "这是一段正文。")
+
+    def test_serialize_tool_invocations_keeps_markdown_tool_summary_short(self) -> None:
+        task = TaskRecord(title="tool summary")
+        with patch.object(self.engine.tool_registry, "invoke", return_value="# 很长的 Markdown\n\n正文"):
+            self.engine._call_tool(
+                task=task,
+                step_id="step_md",
+                tool_name="generate_markdown",
+                title="测试",
+                sections=[{"heading": "回答正文", "content": "正文"}],
+            )
+
+        serialized = self.engine._serialize_tool_invocations(task)
+        self.assertIn("已生成最终 Markdown 结果。", serialized)
+        self.assertNotIn("# 很长的 Markdown", serialized)
 
 
 if __name__ == "__main__":

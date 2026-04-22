@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from orion_agent.core.models import MemoryUpdateRequest
+from orion_agent.core.models import IngestionCommitRequest, IngestionPreviewRequest, MemoryUpdateRequest
 from orion_agent.dependencies import agent_service
 
 
@@ -19,6 +19,16 @@ def list_memories(
 @router.get("/memories/search")
 def search_memories(query: str, scope: str = "default", limit: int = Query(default=5, ge=1, le=20)):
     return agent_service.search_memories(query=query, scope=scope, limit=limit)
+
+
+@router.post("/memories/ingest/preview")
+def preview_ingestion(payload: IngestionPreviewRequest):
+    return agent_service.preview_ingestion(payload)
+
+
+@router.post("/memories/ingest/commit")
+def commit_ingestion(payload: IngestionCommitRequest):
+    return agent_service.commit_ingestion(payload)
 
 
 @router.delete("/memories/{memory_id}")

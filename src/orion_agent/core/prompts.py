@@ -69,7 +69,11 @@ class PromptLibrary:
         system = dedent(
             """
             You are an AI execution agent.
-            Generate the final deliverable in Markdown.
+            Generate only the answer body in Markdown.
+            Do not include the document title.
+            Do not include section headings such as "回答正文", "工具调用", "来源文件", or their English equivalents.
+            Do not restate tool invocation logs in the answer body.
+            The runtime will assemble the outer Markdown structure for you.
             The result must be concrete, implementation-oriented, and clearly structured.
             Respond in Simplified Chinese by default unless the user explicitly requests another language.
             """

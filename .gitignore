@@ -8,6 +8,7 @@ __pycache__/
 
 frontend/node_modules/
 frontend/dist/
+frontend/*.tsbuildinfo
 
 src/*.egg-info/
 src/orion_agent.egg-info/
@@ -19,4 +20,9 @@ uvicorn_stdout.log
 uvicorn_stderr.log
 uvicorn_online_stdout.log
 uvicorn_online_stderr.log
+backend-dev.out.log
+backend-dev.err.log
 .omc/
+
+scripts/ralph/.last-branch
+scripts/ralph/archive/

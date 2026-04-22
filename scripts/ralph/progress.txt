@@ -12,6 +12,14 @@ Started: 2026-04-22T08:57:38
 - Learnings: cosine_similarity is a dot product (not normalized) in this codebase; StubEmbedder produces unreliable ordering
 ---
 
+## 2026-04-23T14:30:00 - Closure
+- Fixed a parent-document recall regression by allowing direct `manual_ingest_parent` retrieval when no matching child chunk is available, while still preferring chunk-to-parent promotion when child hits exist
+- Restored `load_project_env()` and project-root env bootstrap in config so MiniMax/provider configuration tests match the runtime contract again
+- Cleaned local-only artifacts from the workspace: backend dev logs, preview-only page stub, tracked TypeScript build info cache, Ralph branch-state file, and archive output
+- Marked the manual vectorization implementation plan as completed so the docs reflect the shipped preview/commit workflow
+- Quality checks: pytest tests/unit/test_profile_and_memory.py tests/unit/test_ingestion.py tests/test_api_v1.py tests/unit/test_execution_engine_tool_calls.py tests/test_minimax_provider.py -q -p no:cacheprovider (83 passed); frontend build via `npm run build` passed
+---
+
 ## 2026-04-22T10:00:00 - US-R21
 - Added discardable field to MemoryEntry model
 - Added _summarize_step() to ExecutionEngine that marks raw entries discardable and writes compact summary

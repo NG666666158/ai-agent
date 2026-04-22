@@ -260,9 +260,13 @@ class ToolRegistry:
         return json.dumps(results[:max_results], ensure_ascii=False)
 
     def _generate_markdown(self, title: str, sections: list[dict[str, str]]) -> str:
-        lines = [f"# {title}", ""]
+        lines: list[str] = []
+        if title.strip():
+            lines.extend([f"# {title}", ""])
         for section in sections:
-            lines.append(f"## {section['heading']}")
+            heading = str(section.get("heading", "")).strip()
+            if heading:
+                lines.append(f"## {heading}")
             lines.append(section["content"])
             lines.append("")
         return "\n".join(lines).strip()

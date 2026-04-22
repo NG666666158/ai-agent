@@ -481,24 +481,31 @@ class ContextBudgetUsage(BaseModel):
     session_summary_limit: int = 0
     session_summary_used: int = 0
     session_summary_trim_reason: TrimReason = TrimReason.NONE
+    session_summary_compression_policy: str = "truncate"
     recent_messages_limit: int = 0
     recent_messages_count: int = 0
     recent_messages_trim_reason: TrimReason = TrimReason.NONE
+    recent_messages_compression_policy: str = "filter"
     condensed_recent_messages_limit: int = 0
     condensed_recent_messages_count: int = 0
     condensed_recent_messages_trim_reason: TrimReason = TrimReason.NONE
+    condensed_recent_messages_compression_policy: str = "compress"
     recalled_memories_limit: int = 0
     recalled_memories_count: int = 0
     recalled_memories_trim_reason: TrimReason = TrimReason.NONE
+    recalled_memories_compression_policy: str = "none"
     profile_facts_limit: int = 0
     profile_facts_count: int = 0
     profile_facts_trim_reason: TrimReason = TrimReason.NONE
+    profile_facts_compression_policy: str = "compress"
     working_memory_limit: int = 0
     working_memory_count: int = 0
     working_memory_trim_reason: TrimReason = TrimReason.NONE
+    working_memory_compression_policy: str = "none"
     source_summary_limit: int = 0
     source_summary_used: int = 0
     source_summary_trim_reason: TrimReason = TrimReason.NONE
+    source_summary_compression_policy: str = "truncate"
 
 
 class ContextLayer(BaseModel):
@@ -549,6 +556,60 @@ class ReplanEvent(BaseModel):
     resume_from_step_name: str | None = None
     recovery_strategy: str = "replan"
     recovery_attempts: int = 0  # Number of recovery attempts before this replan event
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class CleanupReportEntry(BaseModel):
+    id: str
+    scope: str
+    memory_type: str
+    topic: str
+    staleness_score: float
+    status: MemoryStatus
+    reason: str
+
+
+class MemoryCleanupReport(BaseModel):
+    scope: str
+    evaluated_count: int = 0
+    stale_candidates: int = 0
+    archived_count: int = 0
+    deleted_count: int = 0
+    skipped_count: int = 0
+    staleness_threshold: float = 0.7
+    entries: list[CleanupReportEntry] = Field(default_factory=list)
+    evaluated_at: datetime = Field(default_factory=utcnow)
+
+
+class ProfileFactCleanupReport(BaseModel):
+    evaluated_count: int = 0
+    archived_count: int = 0
+    merged_count: int = 0
+    staleness_threshold: float = 0.7
+    entries: list[str] = Field(default_factory=list)
+    evaluated_at: datetime = Field(default_factory=utcnow)
+
+
+class CleanupEvent(BaseModel):
+    id: str = Field(default_factory=lambda: f"cleanup_{uuid4().hex[:8]}")
+    scope: str
+    action: str = "evaluate"
+    evaluated_count: int = 0
+    archived_count: int = 0
+    deleted_count: int = 0
+    skipped_count: int = 0
+    staleness_threshold: float = 0.7
+    dry_run: bool = True
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class RetrievalEvent(BaseModel):
+    id: str = Field(default_factory=lambda: f"retrieve_{uuid4().hex[:8]}")
+    query: str
+    scope: str
+    channels: list[str] = Field(default_factory=list)
+    result_count: int = 0
+    rerank_applied: bool = False
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -623,6 +684,7 @@ class TaskRecord(BaseModel):
     context_layers: ContextLayer = Field(default_factory=ContextLayer)
     checkpoint: TaskCheckpoint = Field(default_factory=TaskCheckpoint)
     replan_history: list[ReplanEvent] = Field(default_factory=list)
+    runtime_events: list[CleanupEvent | RetrievalEvent] = Field(default_factory=list)
     citation_sources: list[CitationSource] = Field(default_factory=list)
     paragraph_citations: list[ParagraphCitation] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -654,6 +716,7 @@ class TaskResponse(BaseModel):
     context_layers: ContextLayer
     checkpoint: TaskCheckpoint
     replan_history: list[ReplanEvent]
+    runtime_events: list[CleanupEvent | RetrievalEvent] = Field(default_factory=list)
     citation_sources: list[CitationSource]
     paragraph_citations: list[ParagraphCitation]
     execution_nodes: list[ExecutionNode] = Field(default_factory=list)

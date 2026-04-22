@@ -140,13 +140,9 @@ class MiniMaxLLMClient(BaseLLMClient):
         self.fallback = FallbackLLMClient()
         self._degraded = False
         self._last_error: str | None = None
-        try:
-            from anthropic import Anthropic
-        except ImportError as exc:
-            raise RuntimeError("anthropic dependency is required for MiniMax provider") from exc
-        self.client = Anthropic(
+        self.client = OpenAI(
             api_key=settings.minimax_api_key,
-            base_url=settings.minimax_base_url,
+            base_url=self._resolve_openai_base_url(settings.minimax_base_url),
             max_retries=settings.minimax_max_retries,
         )
 
@@ -155,7 +151,7 @@ class MiniMaxLLMClient(BaseLLMClient):
             return self.fallback.generate_json(system_prompt=system_prompt, user_prompt=user_prompt)
         try:
             content = self._complete(system_prompt=system_prompt, user_prompt=user_prompt, json_mode=True)
-            return json.loads(content)
+            return self._parse_json_payload(content)
         except Exception as exc:
             self._degraded = True
             self._last_error = f"{type(exc).__name__}: {exc}"
@@ -175,51 +171,43 @@ class MiniMaxLLMClient(BaseLLMClient):
         if self._degraded:
             yield from self.fallback.stream_text(system_prompt=system_prompt, user_prompt=user_prompt)
             return
-        prompt = self._build_prompt(user_prompt=user_prompt, json_mode=False)
         try:
-            with self.client.messages.stream(
+            stream = self.client.chat.completions.create(
                 model=self.settings.minimax_model,
-                max_tokens=1_500,
-                system=system_prompt,
+                temperature=0.2,
                 messages=[
-                    {
-                        "role": "user",
-                        "content": [{"type": "text", "text": prompt}],
-                    }
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
                 ],
+                extra_body={"reasoning_split": True},
+                stream=True,
                 timeout=self.settings.request_timeout,
-            ) as stream:
-                emitted = False
-                for chunk in stream.text_stream:
-                    if chunk:
-                        emitted = True
-                        yield chunk
-                if not emitted:
-                    raise RuntimeError("empty stream response")
+            )
+            emitted = False
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    emitted = True
+                    yield delta
+            if not emitted:
+                raise RuntimeError("empty stream response")
         except Exception as exc:
             self._degraded = True
             self._last_error = f"{type(exc).__name__}: {exc}"
             yield from self.fallback.stream_text(system_prompt=system_prompt, user_prompt=user_prompt)
 
     def _complete(self, *, system_prompt: str, user_prompt: str, json_mode: bool) -> str:
-        response = self.client.messages.create(
+        response = self.client.chat.completions.create(
             model=self.settings.minimax_model,
-            max_tokens=1_500,
-            system=system_prompt,
+            temperature=0.2,
             messages=[
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": self._build_prompt(user_prompt=user_prompt, json_mode=json_mode)}],
-                }
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": self._build_prompt(user_prompt=user_prompt, json_mode=json_mode)},
             ],
+            extra_body={"reasoning_split": True},
             timeout=self.settings.request_timeout,
         )
-        parts: list[str] = []
-        for block in response.content:
-            text = getattr(block, "text", None)
-            if text:
-                parts.append(text)
-        return "".join(parts).strip()
+        return self._extract_message_text(response.choices[0].message).strip()
 
     def _build_prompt(self, *, user_prompt: str, json_mode: bool) -> str:
         if not json_mode:
@@ -228,6 +216,60 @@ class MiniMaxLLMClient(BaseLLMClient):
             f"{user_prompt}\n\n"
             "Return valid JSON only. Do not wrap the result in markdown fences."
         )
+
+    def _resolve_openai_base_url(self, base_url: str) -> str:
+        normalized = base_url.rstrip("/")
+        if normalized.endswith("/anthropic"):
+            return f"{normalized[:-len('/anthropic')]}/v1"
+        return normalized
+
+    def _extract_message_text(self, message: Any) -> str:
+        content = getattr(message, "content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            fragments: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    fragments.append(item)
+                    continue
+                if isinstance(item, dict):
+                    text = item.get("text") or item.get("content")
+                    if isinstance(text, str):
+                        fragments.append(text)
+                    continue
+                text = getattr(item, "text", None) or getattr(item, "content", None)
+                if isinstance(text, str):
+                    fragments.append(text)
+            return "\n".join(fragment for fragment in fragments if fragment).strip()
+        return str(content or "")
+
+    def _parse_json_payload(self, content: str) -> dict[str, Any]:
+        normalized = (content or "").strip()
+        if not normalized:
+            raise ValueError("empty JSON response")
+        try:
+            payload = json.loads(normalized)
+            if isinstance(payload, dict):
+                return payload
+            raise ValueError("json response is not an object")
+        except Exception:
+            pass
+
+        fenced_match = re.search(r"```(?:json)?\s*(\{[\s\S]*\})\s*```", normalized, re.IGNORECASE)
+        if fenced_match:
+            payload = json.loads(fenced_match.group(1))
+            if isinstance(payload, dict):
+                return payload
+
+        start = normalized.find("{")
+        end = normalized.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            payload = json.loads(normalized[start : end + 1])
+            if isinstance(payload, dict):
+                return payload
+
+        raise ValueError("unable to extract JSON object from MiniMax response")
 
     def health(self) -> dict[str, str]:
         return {
@@ -262,6 +304,9 @@ class MiniMaxLLMClient(BaseLLMClient):
 
 class FallbackLLMClient(BaseLLMClient):
     """Deterministic fallback used when no provider is available."""
+
+    def __init__(self, *, last_error: str | None = None) -> None:
+        self._last_error = last_error or ""
 
     def generate_json(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         request_payload = self._extract_json_payload(user_prompt)
@@ -393,7 +438,7 @@ class FallbackLLMClient(BaseLLMClient):
         return {
             "provider": "fallback",
             "mode": "fallback",
-            "last_error": "",
+            "last_error": self._last_error,
         }
 
     def probe(self) -> dict[str, Any]:
@@ -402,6 +447,7 @@ class FallbackLLMClient(BaseLLMClient):
             "status": "ready",
             "mode": "fallback",
             "preview": "fallback-active",
+            "error": self._last_error,
         }
 
     def _summarize_conversation(self, payload: str) -> str:
@@ -482,8 +528,8 @@ def build_llm_client(settings: Settings) -> BaseLLMClient:
     if settings.llm_provider == "minimax" and settings.minimax_api_key:
         try:
             return MiniMaxLLMClient(settings)
-        except Exception:
-            return FallbackLLMClient()
+        except Exception as exc:
+            return FallbackLLMClient(last_error=f"minimax init failed: {type(exc).__name__}: {exc}")
     if settings.openai_api_key:
         return OpenAILLMClient(settings)
     return FallbackLLMClient()

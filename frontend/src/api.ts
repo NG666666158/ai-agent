@@ -205,6 +205,54 @@ export type MemoryUpdatePayload = {
   tags?: string[];
 };
 
+export type IngestionStrategy = "recursive" | "parent_child" | "semantic";
+
+export type IngestionPreviewPayload = {
+  title?: string;
+  text: string;
+  scope?: string;
+  memory_type?: string;
+  chunk_strategy?: IngestionStrategy;
+  max_chunk_chars?: number;
+  overlap_chars?: number;
+  tags?: string[];
+};
+
+export type ChunkPreview = {
+  chunk_id: string;
+  parent_id: string | null;
+  chunk_index: number;
+  text: string;
+  char_count: number;
+  summary: string;
+  embedding_preview: number[];
+  embedding_dimensions: number;
+};
+
+export type IngestionPreviewResponse = {
+  document_id: string;
+  title: string;
+  strategy: IngestionStrategy;
+  scope: string;
+  memory_type: string;
+  total_chars: number;
+  total_chunks: number;
+  parent_documents_count: number;
+  ready_to_store: boolean;
+  chunks: ChunkPreview[];
+};
+
+export type IngestionCommitResponse = {
+  document_id: string;
+  title: string;
+  strategy: IngestionStrategy;
+  scope: string;
+  stored_count: number;
+  parent_count: number;
+  chunk_count: number;
+  memory_ids: string[];
+};
+
 export type ChatMessage = {
   id: string;
   session_id: string;
@@ -401,6 +449,22 @@ export function deleteMemory(memoryId: string): Promise<{ deleted: boolean; memo
 export function updateMemory(memoryId: string, payload: MemoryUpdatePayload): Promise<MemoryRecord> {
   return api<MemoryRecord>(`/api/memories/${memoryId}`, {
     method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function previewIngestion(payload: IngestionPreviewPayload): Promise<IngestionPreviewResponse> {
+  return api<IngestionPreviewResponse>("/api/memories/ingest/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function commitIngestion(payload: IngestionPreviewPayload): Promise<IngestionCommitResponse> {
+  return api<IngestionCommitResponse>("/api/memories/ingest/commit", {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });

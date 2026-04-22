@@ -30,6 +30,7 @@ from orion_agent.core.models import (
     IngestionPreviewRequest,
     IngestionPreviewResponse,
     LongTermMemoryRecord,
+    RetrievalEvent,
     MemorySource,
     MemoryUpdateRequest,
     MemoryVersion,
@@ -107,7 +108,19 @@ class AgentService:
             memory_manager=self.long_term_memory,
         )
         self.profile_manager = UserProfileManager(self.repository)
-        self.context_builder = ContextBuilder(self.profile_manager, self.repository)
+        self.context_builder = ContextBuilder(
+            self.profile_manager,
+            self.repository,
+            budget_overrides={
+                "session_summary": self.settings.context_budget_session_summary,
+                "recent_messages": self.settings.context_budget_recent_messages,
+                "condensed_recent_messages": self.settings.context_budget_condensed_recent_messages,
+                "recalled_memories": self.settings.context_budget_recalled_memories,
+                "profile_facts": self.settings.context_budget_profile_facts,
+                "working_memory": self.settings.context_budget_working_memory,
+                "source_summary": self.settings.context_budget_source_summary,
+            },
+        )
         self.tool_registry = ToolRegistry(self.settings)
         self.planner = Planner(self.llm_client, self.prompts)
         self.executor = ExecutionEngine(
@@ -159,6 +172,7 @@ class AgentService:
                 detail="Task was resumed with force_replan enabled.",
             )
         else:
+            transition_task(task, TaskStatus.RUNNING)
             task.failure_category = FailureCategory.NONE
             task.failure_message = None
             self._update_checkpoint(task, phase="EXECUTION", stage="resume_requested", resumable=True, resume_reason=payload.reason if payload else "resume")
@@ -453,8 +467,8 @@ class AgentService:
         self._append_progress(task, "memory", "正在检索记忆。", f"记忆作用域：{request.memory_scope}")
         self.repository.save(task)
 
-        RECALLED_MEMORIES_LIMIT = 5
-        PROFILE_HITS_LIMIT = 4
+        RECALLED_MEMORIES_LIMIT = self.settings.context_budget_recalled_memories
+        PROFILE_HITS_LIMIT = self.settings.context_budget_profile_facts
         task.recalled_memories = self.long_term_memory.recall(query=request.goal, scope=request.memory_scope, limit=RECALLED_MEMORIES_LIMIT)
         task.profile_hits = self.profile_manager.match_relevant(request.goal, limit=PROFILE_HITS_LIMIT)
         task.context_layers.recalled_memories = [
@@ -467,6 +481,8 @@ class AgentService:
             task.context_layers.budget_usage.profile_facts_count = len(task.profile_hits)
             profile_trim_reason = TrimReason.COMPRESSED if len(task.profile_hits) >= PROFILE_HITS_LIMIT else TrimReason.NONE
             task.context_layers.budget_usage.profile_facts_trim_reason = profile_trim_reason
+            if task.context_layers.budget_usage.working_memory_count > task.context_layers.budget_usage.working_memory_limit:
+                task.context_layers.budget_usage.working_memory_trim_reason = TrimReason.FILTERED
             # Add trace entry for recalled_memories layer (profile_facts trace already added in build())
             task.context_layers.trace_entries.append(
                 ContextTraceEntry(
@@ -477,6 +493,15 @@ class AgentService:
                 )
             )
         task.context_layers.profile_facts = [f"{item.label}: {item.value}" for item in task.profile_hits]
+        task.runtime_events.append(
+            RetrievalEvent(
+                query=request.goal,
+                scope=request.memory_scope,
+                channels=sorted({channel for item in task.recalled_memories for channel in item.retrieval_channels}),
+                result_count=len(task.recalled_memories),
+                rerank_applied=self.long_term_memory._reranker is not None and len(task.recalled_memories) > 1,
+            )
+        )
         self.memory_manager.write(task, "memory_scope", request.memory_scope)
         self._append_progress(
             task,
@@ -638,11 +663,12 @@ class AgentService:
 
             if recovery_state == RecoveryState.RETRYING:
                 task.checkpoint.recovery_attempt += 1
+                failed_step = self.recovery_policy.find_failed_step(task)
                 self._append_progress(
                     task,
                     "recovery",
                     "正在重试当前步骤。",
-                    f"失败类型：{task.failure_category.value}；第 {task.checkpoint.recovery_attempt} 次恢复尝试。",
+                    f"recovery_strategy=retry; recovery_attempt={task.checkpoint.recovery_attempt}; resume_origin_step={failed_step.id if failed_step else 'unknown'}; failure_category={task.failure_category.value}",
                 )
                 self._prepare_current_step_retry(task)
                 task.failure_category = FailureCategory.NONE
@@ -652,6 +678,13 @@ class AgentService:
 
             if recovery_state == RecoveryState.SKIPPING:
                 task.checkpoint.recovery_attempt += 1
+                failed_step = self.recovery_policy.find_failed_step(task)
+                self._append_progress(
+                    task,
+                    "recovery",
+                    "系统已跳过失败步骤并继续执行。",
+                    f"recovery_strategy=skip; recovery_attempt={task.checkpoint.recovery_attempt}; resume_origin_step={failed_step.id if failed_step else 'unknown'}; failure_category={task.failure_category.value}",
+                )
                 self._prepare_skip_failed_step(task)
                 task.failure_category = FailureCategory.NONE
                 task.failure_message = None
@@ -660,6 +693,13 @@ class AgentService:
 
             if recovery_state == RecoveryState.REPLANNING_REMAINING and task.replan_count < self.settings.replan_limit:
                 task.checkpoint.recovery_attempt += 1
+                failed_step = self.recovery_policy.find_failed_step(task)
+                self._append_progress(
+                    task,
+                    "recovery",
+                    "系统正在重建失败步骤之后的执行计划。",
+                    f"recovery_strategy=replan_remaining; recovery_attempt={task.checkpoint.recovery_attempt}; resume_origin_step={failed_step.id if failed_step else 'unknown'}; failure_category={task.failure_category.value}",
+                )
                 self._prepare_replan_remaining_steps(task, request)
                 task.failure_category = FailureCategory.NONE
                 task.failure_message = None
@@ -668,6 +708,13 @@ class AgentService:
 
             if recovery_state == RecoveryState.REPLANNING_FULL and task.replan_count < self.settings.replan_limit:
                 task.checkpoint.recovery_attempt += 1
+                failed_step = self.recovery_policy.find_failed_step(task)
+                self._append_progress(
+                    task,
+                    "recovery",
+                    "执行中断，正在从检查点重规划。",
+                    f"recovery_strategy=replan_full; recovery_attempt={task.checkpoint.recovery_attempt}; resume_origin_step={failed_step.id if failed_step else 'unknown'}; failure_category={task.failure_category.value}",
+                )
                 self._prepare_replan_from_failure(task, request)
                 task.failure_category = FailureCategory.NONE
                 task.failure_message = None

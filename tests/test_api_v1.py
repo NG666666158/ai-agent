@@ -43,6 +43,28 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
 
+    def test_json_api_responses_explicitly_use_utf8(self) -> None:
+        response = self.client.post("/api/sessions", json={"title": "中文会话"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "application/json; charset=utf-8")
+
+    def test_streaming_task_response_explicitly_uses_utf8(self) -> None:
+        task_response = self.client.post(
+            "/api/tasks/launch",
+            json={
+                "goal": "验证流式编码",
+                "expected_output": "markdown",
+                "enable_web_search": False,
+            },
+        )
+        self.assertEqual(task_response.status_code, 200)
+        task_id = task_response.json()["id"]
+
+        with self.client.stream("GET", f"/api/tasks/{task_id}/stream") as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers["content-type"], "text/event-stream; charset=utf-8")
+
     def test_root_ui_renders(self) -> None:
         response = self.client.get("/")
         tasks_page = self.client.get("/tasks")
@@ -163,6 +185,52 @@ class ApiTests(unittest.TestCase):
             remaining_memories = self.client.get("/api/memories")
             self.assertEqual(remaining_memories.status_code, 200)
             self.assertTrue(all(item["id"] != memories[0]["id"] for item in remaining_memories.json()))
+
+    def test_manual_ingestion_preview_and_commit_endpoints(self) -> None:
+        preview_response = self.client.post(
+            "/api/memories/ingest/preview",
+            json={
+                "title": "手动向量化文档",
+                "text": "第一段说明 RAG 的切块策略。第二段说明父子文档索引。第三段说明确认后再入库。",
+                "scope": "manual",
+                "memory_type": "document_note",
+                "chunk_strategy": "parent_child",
+                "max_chunk_chars": 24,
+                "overlap_chars": 4,
+            },
+        )
+
+        self.assertEqual(preview_response.status_code, 200)
+        preview = preview_response.json()
+        self.assertEqual(preview["strategy"], "parent_child")
+        self.assertGreaterEqual(preview["total_chunks"], 1)
+        self.assertIn("chunks", preview)
+        self.assertIn("embedding_dimensions", preview["chunks"][0])
+
+        commit_response = self.client.post(
+            "/api/memories/ingest/commit",
+            json={
+                "title": "手动向量化文档",
+                "text": "第一段说明 RAG 的切块策略。第二段说明父子文档索引。第三段说明确认后再入库。",
+                "scope": "manual",
+                "memory_type": "document_note",
+                "chunk_strategy": "parent_child",
+                "max_chunk_chars": 24,
+                "overlap_chars": 4,
+            },
+        )
+
+        self.assertEqual(commit_response.status_code, 200)
+        committed = commit_response.json()
+        self.assertGreaterEqual(committed["stored_count"], 2)
+        self.assertGreaterEqual(committed["chunk_count"], 1)
+        self.assertEqual(committed["scope"], "manual")
+
+        memories_response = self.client.get("/api/memories", params={"scope": "manual"})
+        self.assertEqual(memories_response.status_code, 200)
+        self.assertTrue(
+            any(item["source"]["source_type"] == "manual_ingest_chunk" for item in memories_response.json())
+        )
 
     def test_session_branch_endpoint_copies_parent_session_context(self) -> None:
         parent_response = self.client.post("/api/sessions", json={"title": "父会话"})

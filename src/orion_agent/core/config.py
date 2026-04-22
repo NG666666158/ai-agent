@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_ENV_LOADED = False
 
 
 @dataclass(slots=True)
@@ -38,7 +43,35 @@ class Settings:
     vector_api_key: str | None = field(default_factory=lambda: os.getenv("VECTOR_API_KEY"))
     vector_timeout: float = field(default_factory=lambda: float(os.getenv("VECTOR_TIMEOUT", "8")))
     vector_dimensions: int = field(default_factory=lambda: int(os.getenv("VECTOR_DIMENSIONS", "1536")))
+    context_budget_session_summary: int = field(default_factory=lambda: int(os.getenv("CONTEXT_BUDGET_SESSION_SUMMARY", "1200")))
+    context_budget_recent_messages: int = field(default_factory=lambda: int(os.getenv("CONTEXT_BUDGET_RECENT_MESSAGES", "6")))
+    context_budget_condensed_recent_messages: int = field(default_factory=lambda: int(os.getenv("CONTEXT_BUDGET_CONDENSED_RECENT_MESSAGES", "3")))
+    context_budget_recalled_memories: int = field(default_factory=lambda: int(os.getenv("CONTEXT_BUDGET_RECALLED_MEMORIES", "5")))
+    context_budget_profile_facts: int = field(default_factory=lambda: int(os.getenv("CONTEXT_BUDGET_PROFILE_FACTS", "6")))
+    context_budget_working_memory: int = field(default_factory=lambda: int(os.getenv("CONTEXT_BUDGET_WORKING_MEMORY", "8")))
+    context_budget_source_summary: int = field(default_factory=lambda: int(os.getenv("CONTEXT_BUDGET_SOURCE_SUMMARY", "600")))
+
+
+def load_project_env(*, project_root: Path | None = None, force: bool = False) -> None:
+    """Load deploy/.env into os.environ without overriding explicit environment values."""
+    global _ENV_LOADED
+
+    if _ENV_LOADED and not force:
+        return
+
+    root = project_root or PROJECT_ROOT
+    env_path = root / "deploy" / ".env"
+    if env_path.exists():
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+
+    _ENV_LOADED = True
 
 
 def get_settings() -> Settings:
+    load_project_env()
     return Settings()

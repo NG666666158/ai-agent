@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 
-from orion_agent.core.models import UserProfileFact, UserProfileFactStatus, utcnow
+from orion_agent.core.models import ProfileFactCleanupReport, UserProfileFact, UserProfileFactStatus, utcnow
 from orion_agent.core.repository import TaskRepository
 
 
@@ -189,6 +189,27 @@ class UserProfileManager:
 
     def list_facts(self, limit: int = 50, *, include_inactive: bool = False) -> list[UserProfileFact]:
         return self.repository.list_user_profile_facts(limit=limit, include_inactive=include_inactive)
+
+    def cleanup_policy_report(self, *, staleness_threshold: float = 0.7) -> ProfileFactCleanupReport:
+        all_facts = self.repository.list_user_profile_facts(limit=500, include_inactive=False)
+        entries: list[str] = []
+        archived_count = 0
+
+        for fact in all_facts:
+            effective = self.effective_confidence(fact)
+            if effective < staleness_threshold:
+                entries.append(fact.id)
+                fact.status = UserProfileFactStatus.ARCHIVED
+                self.repository.save_user_profile_fact(fact)
+                archived_count += 1
+
+        return ProfileFactCleanupReport(
+            evaluated_count=len(all_facts),
+            archived_count=archived_count,
+            merged_count=0,
+            staleness_threshold=staleness_threshold,
+            entries=entries,
+        )
 
     def get_fact(self, fact_id: str) -> UserProfileFact | None:
         return self.repository.get_user_profile_fact(fact_id)

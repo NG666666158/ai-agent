@@ -6,7 +6,16 @@ from typing import Protocol
 
 from orion_agent.core.embedding_runtime import BaseEmbedder
 from orion_agent.core.embedding_runtime import cosine_similarity
-from orion_agent.core.models import LongTermMemoryRecord, MemoryEntry, MemoryStatus, MemoryVersion, TaskRecord, utcnow
+from orion_agent.core.models import (
+    CleanupReportEntry,
+    LongTermMemoryRecord,
+    MemoryCleanupReport,
+    MemoryEntry,
+    MemoryStatus,
+    MemoryVersion,
+    TaskRecord,
+    utcnow,
+)
 from orion_agent.core.repository import TaskRepository
 from orion_agent.core.vector_store import BaseVectorStore
 
@@ -74,15 +83,26 @@ def _heuristic_score(
     if semantic_score > 0.35:
         reasons.append(f"semantic={semantic_score:.2f}")
     if lexical_overlap:
-        reasons.append(f"keyword_overlap={lexical_overlap}")
+        reasons.append(f"keyword={lexical_overlap}")
     if type_weight > 1.0:
         reasons.append(f"type_boost={record.memory_type}")
     elif type_weight < 1.0:
         reasons.append(f"type_downweight={record.memory_type}")
 
+    normalized: list[str] = []
+    for reason in reasons:
+        if reason.startswith("semantic="):
+            normalized.append("vec")
+        elif reason.startswith("keyword="):
+            normalized.append("lex")
+        elif reason.startswith("type_boost=") or reason.startswith("type_downweight="):
+            normalized.append("typ")
+    if not normalized:
+        normalized.append("mixed")
+
     score = semantic_score + lexical_score
     score *= type_weight
-    return score, reasons or ["mixed_recall"]
+    return score, normalized or ["mixed_recall"]
 
 
 MEMORY_TYPE_WEIGHTS = {
@@ -167,6 +187,7 @@ class LongTermMemoryManager:
         candidate_limit = max(limit * 3, 8)
         candidates: dict[str, LongTermMemoryRecord] = {}
         channels: dict[str, set[str]] = defaultdict(set)
+        promoted_parent_ids: set[str] = set()
 
         memory_ids = self.vector_store.search(query_embedding=query_embedding, scope=scope, limit=candidate_limit)
         for record in self.repository.get_long_term_memories_by_ids(memory_ids):
@@ -174,6 +195,8 @@ class LongTermMemoryManager:
                 continue
             candidates[record.id] = record
             channels[record.id].add("vector_store")
+            if record.source.source_type == "manual_ingest_chunk" and record.parent_id:
+                promoted_parent_ids.add(record.parent_id)
 
         for record in self.repository.search_long_term_memories_by_vector(
             query_embedding=query_embedding,
@@ -184,15 +207,21 @@ class LongTermMemoryManager:
                 continue
             candidates.setdefault(record.id, record)
             channels[record.id].add("local_vector")
+            if record.source.source_type == "manual_ingest_chunk" and record.parent_id:
+                promoted_parent_ids.add(record.parent_id)
 
         for record in self.repository.search_long_term_memories(query=query, scope=scope, limit=candidate_limit):
             if self._should_skip_candidate(record):
                 continue
             candidates.setdefault(record.id, record)
             channels[record.id].add("lexical")
+            if record.source.source_type == "manual_ingest_chunk" and record.parent_id:
+                promoted_parent_ids.add(record.parent_id)
 
         if not candidates:
             for record in self.repository.list_long_term_memories(scope=scope, limit=limit):
+                if self._should_skip_candidate(record):
+                    continue
                 cloned = record.model_copy(deep=True)
                 cloned.retrieval_score = 0.05
                 cloned.retrieval_reason = "fallback:recent_memory"
@@ -204,6 +233,8 @@ class LongTermMemoryManager:
 
         reranked: list[tuple[float, datetime, LongTermMemoryRecord]] = []
         for record_id, record in candidates.items():
+            if record.source.source_type == "manual_ingest_parent" and record.id in promoted_parent_ids:
+                continue
             reranked_record = record.model_copy(deep=True)
             score, reasons = _heuristic_score(
                 query=query,
@@ -238,8 +269,6 @@ class LongTermMemoryManager:
         if record.deleted:
             return True
         if record.status != MemoryStatus.ACTIVE:
-            return True
-        if record.source.source_type == "manual_ingest_parent":
             return True
         return False
 
@@ -370,34 +399,67 @@ class LongTermMemoryManager:
             Dict with keys: candidates (list of records), archived_count, deleted_count,
             total_evaluated.
         """
+        report = self.cleanup_policy_report(scope, staleness_threshold=staleness_threshold, dry_run=dry_run)
+        return {
+            "candidates": report.entries,
+            "total_evaluated": report.evaluated_count,
+            "archived_count": report.archived_count,
+            "deleted_count": report.deleted_count,
+            "staleness_threshold": report.staleness_threshold,
+        }
+
+    def cleanup_policy_report(
+        self,
+        scope: str,
+        *,
+        staleness_threshold: float = 0.7,
+        dry_run: bool = True,
+    ) -> MemoryCleanupReport:
         all_records = self.repository.list_long_term_memories(scope=scope, limit=500, include_stale=True)
-        candidates: list[LongTermMemoryRecord] = []
+        entries: list[CleanupReportEntry] = []
         archived_count = 0
         deleted_count = 0
+        skipped_count = 0
 
         for record in all_records:
             if record.deleted:
+                skipped_count += 1
                 continue
 
             score = self.compute_staleness(record)
             record.staleness_score = score
 
             if score >= staleness_threshold:
-                candidates.append(record)
+                reason = f"staleness_score={score:.4f} >= threshold={staleness_threshold}"
+                entries.append(
+                    CleanupReportEntry(
+                        id=record.id,
+                        scope=record.scope,
+                        memory_type=record.memory_type,
+                        topic=record.topic,
+                        staleness_score=score,
+                        status=record.status,
+                        reason=reason,
+                    )
+                )
                 if not dry_run:
                     record.status = MemoryStatus.STALE
                     record.marked_stale_at = utcnow()
                     self.repository.save_long_term_memory(record)
                     archived_count += 1
+            else:
+                skipped_count += 1
 
-
-        return {
-            "candidates": candidates,
-            "total_evaluated": len(all_records),
-            "archived_count": archived_count,
-            "deleted_count": deleted_count,
-            "staleness_threshold": staleness_threshold,
-        }
+        return MemoryCleanupReport(
+            scope=scope,
+            evaluated_count=len(all_records),
+            stale_candidates=len(entries),
+            archived_count=archived_count,
+            deleted_count=deleted_count,
+            skipped_count=skipped_count,
+            staleness_threshold=staleness_threshold,
+            entries=entries,
+        )
 
     def is_record_stale(self, record: LongTermMemoryRecord) -> bool:
         """Return True if the record is in a stale/archived state."""

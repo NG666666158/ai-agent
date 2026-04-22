@@ -36,14 +36,23 @@ CONTEXT_BUDGET = {
 class ContextBuilder:
     """Builds context layers from task requests and session state."""
 
-    def __init__(self, profile_manager: UserProfileManager, repository: TaskRepository) -> None:
+    def __init__(
+        self,
+        profile_manager: UserProfileManager,
+        repository: TaskRepository,
+        budget_overrides: dict[str, int] | None = None,
+    ) -> None:
         self._profile_manager = profile_manager
         self._repository = repository
+        self._budget_overrides = budget_overrides or {}
 
     def build(self, request: TaskCreateRequest) -> ContextLayer:
         """Build a complete ContextLayer from a task creation request."""
         session_context = self._build_session_context(request.session_id)
         budget = dict(CONTEXT_BUDGET)
+        for key, value in self._budget_overrides.items():
+            if key in budget:
+                budget[key] = value
         trace_entries: list[ContextTraceEntry] = []
         now = utcnow()
 
@@ -112,10 +121,11 @@ class ContextBuilder:
             f"memory_scope={request.memory_scope}",
         ]
         # Append non-discardable entries from the task's working memory if available
-        if hasattr(request, "_task_memory"):
+        task_memory = getattr(request, "_task_memory", None)
+        if task_memory:
             working_raw.extend(
                 entry.content
-                for entry in request._task_memory
+                for entry in task_memory
                 if not entry.discardable
             )
         working_memory = [self._trim_text(item, 240) for item in working_raw[: budget["working_memory"]]]
@@ -141,29 +151,36 @@ class ContextBuilder:
             )
         )
 
-        # budget usage with trimming reasons
+        # budget usage with trimming reasons and compression policies
         budget_usage = ContextBudgetUsage(
             session_summary_limit=budget["session_summary"],
             session_summary_used=len(session_summary_text),
             session_summary_trim_reason=session_summary_trim_reason,
+            session_summary_compression_policy="truncate",
             recent_messages_limit=budget["recent_messages"],
             recent_messages_count=len(recent_messages),
             recent_messages_trim_reason=recent_messages_trim_reason,
+            recent_messages_compression_policy="filter",
             condensed_recent_messages_limit=budget["condensed_recent_messages"],
             condensed_recent_messages_count=len(condensed_recent_messages),
             condensed_recent_messages_trim_reason=condensed_recent_messages_trim_reason,
+            condensed_recent_messages_compression_policy="compress",
             recalled_memories_limit=budget["recalled_memories"],
             recalled_memories_count=0,  # filled by runtime after recall
             recalled_memories_trim_reason=TrimReason.NONE,  # set by runtime after memory recall
+            recalled_memories_compression_policy="none",
             profile_facts_limit=budget["profile_facts"],
             profile_facts_count=len(profile_facts),
             profile_facts_trim_reason=profile_facts_trim_reason,
+            profile_facts_compression_policy="compress",
             working_memory_limit=budget["working_memory"],
             working_memory_count=len(working_memory),
             working_memory_trim_reason=TrimReason.NONE,  # working_memory is constructed from request, always fits
+            working_memory_compression_policy="none",
             source_summary_limit=budget["source_summary"],
             source_summary_used=len(source_summary_text),
             source_summary_trim_reason=source_summary_trim_reason,
+            source_summary_compression_policy="truncate",
         )
 
         # legacy build_notes still produced for backward compatibility
