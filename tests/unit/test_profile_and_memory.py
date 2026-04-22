@@ -486,5 +486,158 @@ class RerankIntegrationTests(unittest.TestCase):
         return MemorySource(source_type="manual_ingest_parent")
 
 
+class MemoryExpirationAndCleanupTests(unittest.TestCase):
+    """US-R23: Memory expiration and cleanup governance."""
+
+    def setUp(self) -> None:
+        self.repository = TaskRepository(db_path=":memory:")
+        embedder = StubEmbedder()
+        self.vector_store = LocalVectorStore(repository=self.repository)
+        self.memory_manager = LongTermMemoryManager(
+            repository=self.repository,
+            embedder=embedder,
+            vector_store=self.vector_store,
+        )
+
+    def tearDown(self) -> None:
+        self.repository.close()
+
+    def test_memory_status_enum_has_stale_value(self) -> None:
+        # 验收标准：MemoryStatus 支持 STALE 状态
+        from orion_agent.core.models import MemoryStatus
+        self.assertTrue(hasattr(MemoryStatus, "STALE"))
+        self.assertEqual(MemoryStatus.STALE.value, "STALE")
+
+    def test_long_term_memory_record_has_staleness_fields(self) -> None:
+        # 验收标准：LongTermMemoryRecord 包含 staleness_score 和 marked_stale_at
+        from orion_agent.core.models import LongTermMemoryRecord
+        record = LongTermMemoryRecord(
+            topic="test",
+            summary="test",
+            details="",
+            staleness_score=0.5,
+            marked_stale_at=None,
+        )
+        self.assertEqual(record.staleness_score, 0.5)
+        self.assertIsNone(record.marked_stale_at)
+
+    def test_compute_staleness_returns_score_between_0_and_1(self) -> None:
+        # 验收标准：staleness_score 在 [0, 1] 范围内
+        record = LongTermMemoryRecord(
+            topic="test",
+            summary="test",
+            details="",
+            memory_type="fact",
+        )
+        score = self.memory_manager.compute_staleness(record)
+        self.assertGreaterEqual(score, 0.0)
+        self.assertLessEqual(score, 1.0)
+
+    def test_is_record_stale_returns_true_for_stale_archived_records(self) -> None:
+        # 验收标准：STALE 和 ARCHIVED 状态的记录被识别为 stale
+        from orion_agent.core.models import LongTermMemoryRecord, MemoryStatus
+
+        stale_record = LongTermMemoryRecord(
+            topic="stale",
+            summary="stale",
+            details="",
+            status=MemoryStatus.STALE,
+        )
+        self.assertTrue(self.memory_manager.is_record_stale(stale_record))
+
+        archived_record = LongTermMemoryRecord(
+            topic="archived",
+            summary="archived",
+            details="",
+            status=MemoryStatus.ARCHIVED,
+        )
+        self.assertTrue(self.memory_manager.is_record_stale(archived_record))
+
+        active_record = LongTermMemoryRecord(
+            topic="active",
+            summary="active",
+            details="",
+            status=MemoryStatus.ACTIVE,
+        )
+        self.assertFalse(self.memory_manager.is_record_stale(active_record))
+
+    def test_cleanup_policy_dry_run_returns_candidates_without_persisting(self) -> None:
+        # 验收标准：dry_run=True 时返回候选列表但不持久化更改
+        from datetime import timedelta
+        from orion_agent.core.models import MemoryStatus
+
+        # Create fresh record (low staleness)
+        fresh = LongTermMemoryRecord(
+            topic="fresh",
+            summary="fresh",
+            details="",
+            memory_type="fact",
+            accessed_count=5,
+        )
+        fresh.updated_at = utcnow()
+        self.memory_manager.remember(fresh)
+
+        result = self.memory_manager.cleanup_policy(
+            scope="default",
+            staleness_threshold=0.1,
+            dry_run=True,
+        )
+        # Fresh record should have a staleness score computed
+        self.assertIsNotNone(result["candidates"])
+        self.assertEqual(result["archived_count"], 0)
+        self.assertEqual(result["total_evaluated"], 1)
+
+    def test_cleanup_policy_sets_stale_status_when_not_dry_run(self) -> None:
+        # 验收标准：dry_run=False 时将候选记录标记为 STALE
+        from orion_agent.core.models import MemoryStatus
+
+        record = LongTermMemoryRecord(
+            topic="old task",
+            summary="old",
+            details="",
+            memory_type="task_result",
+            accessed_count=0,
+        )
+        saved = self.memory_manager.remember(record)
+
+        result = self.memory_manager.cleanup_policy(
+            scope="default",
+            staleness_threshold=0.0,
+            dry_run=False,
+        )
+        # Should mark the record as STALE
+        self.assertGreater(result["archived_count"], 0)
+
+        reloaded = self.repository.get_long_term_memory(saved.id)
+        self.assertEqual(reloaded.status, MemoryStatus.STALE)
+        self.assertIsNotNone(reloaded.marked_stale_at)
+
+    def test_list_memories_excludes_stale_by_default(self) -> None:
+        # 验收标准：list_memories 默认过滤 stale 记录
+        from orion_agent.core.models import MemoryStatus
+
+        active = LongTermMemoryRecord(
+            topic="active",
+            summary="active",
+            details="",
+            status=MemoryStatus.ACTIVE,
+        )
+        self.memory_manager.remember(active)
+
+        stale = LongTermMemoryRecord(
+            topic="stale",
+            summary="stale",
+            details="",
+            status=MemoryStatus.STALE,
+        )
+        self.memory_manager.remember(stale)
+
+        # list_long_term_memories should exclude stale by default
+        listed = self.repository.list_long_term_memories(scope="default", limit=50)
+        listed_ids = {r.id for r in listed}
+        self.assertIn(active.id, listed_ids)
+        self.assertNotIn(stale.id, listed_ids)
+
+
 if __name__ == "__main__":
     unittest.main()

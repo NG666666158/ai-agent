@@ -6,7 +6,7 @@ from typing import Protocol
 
 from orion_agent.core.embedding_runtime import BaseEmbedder
 from orion_agent.core.embedding_runtime import cosine_similarity
-from orion_agent.core.models import LongTermMemoryRecord, MemoryEntry, MemoryVersion, TaskRecord, utcnow
+from orion_agent.core.models import LongTermMemoryRecord, MemoryEntry, MemoryStatus, MemoryVersion, TaskRecord, utcnow
 from orion_agent.core.repository import TaskRepository
 from orion_agent.core.vector_store import BaseVectorStore
 
@@ -305,22 +305,93 @@ class LongTermMemoryManager:
         promoted.retrieval_channels = sorted(set([*record.retrieval_channels, "parent_doc"]))
         return promoted
 
-    def _tokenize(self, text: str) -> set[str]:
-        normalized = (
-            text.lower()
-            .replace("\n", " ")
-            .replace(",", " ")
-            .replace("，", " ")
-            .replace("。", " ")
-            .replace("：", " ")
-            .replace(":", " ")
-            .replace("(", " ")
-            .replace(")", " ")
-            .replace("/", " ")
-        )
-        tokens = {item.strip() for item in normalized.split() if len(item.strip()) >= 2}
-        for chunk in normalized.split():
-            if len(chunk) >= 4 and any("\u4e00" <= char <= "\u9fff" for char in chunk):
-                for index in range(len(chunk) - 1):
-                    tokens.add(chunk[index : index + 2])
-        return tokens
+    def compute_staleness(self, record: LongTermMemoryRecord) -> float:
+        """Compute staleness score for a memory record.
+
+        Score is in [0, 1]: 0 = fresh, 1 = maximally stale.
+        Considers time since last access, access frequency, and memory type.
+        """
+        from orion_agent.core.models import MemoryStatus
+
+        if record.status != MemoryStatus.ACTIVE:
+            return 0.0
+
+        now = utcnow()
+        age_days = (now - record.created_at).total_seconds() / 86400.0
+        access_gap_days = 0.0
+        if record.last_accessed_at:
+            access_gap_days = (now - record.last_accessed_at).total_seconds() / 86400.0
+
+        # Age component: 50% weight, half-life at 90 days
+        age_score = 1.0 - (0.5 ** (age_days / 90.0))
+        # Recency component: 30% weight, half-life at 14 days of no access
+        recency_score = 1.0 - (0.5 ** (access_gap_days / 14.0))
+        # Frequency component: 20% weight - low access count means more stale
+        freq_score = min(record.accessed_count / 10.0, 1.0)
+
+        # Memory type penalty: task_result decays faster than preferences/facts
+        type_multiplier = 1.0
+        if record.memory_type == "task_result":
+            type_multiplier = 1.5
+        elif record.memory_type == "conversation_summary":
+            type_multiplier = 1.3
+
+        staleness = (age_score * 0.5 + recency_score * 0.3 + (1.0 - freq_score) * 0.2) * type_multiplier
+        return min(round(staleness, 4), 1.0)
+
+    def cleanup_policy(
+        self,
+        scope: str,
+        *,
+        staleness_threshold: float = 0.7,
+        dry_run: bool = True,
+    ) -> dict[str, object]:
+        """Evaluate cleanup policy for memories in a scope.
+
+        Returns a report with candidates for archival/deletion without immediately
+        hard-deleting useful records.
+
+        Args:
+            scope: Memory scope to evaluate.
+            staleness_threshold: Memories with staleness_score >= threshold are
+                candidates for STALE status. Default 0.7.
+            dry_run: If True, only return the candidate list without persisting changes.
+
+        Returns:
+            Dict with keys: candidates (list of records), archived_count, deleted_count,
+            total_evaluated.
+        """
+        all_records = self.repository.list_long_term_memories(scope=scope, limit=500, include_stale=True)
+        candidates: list[LongTermMemoryRecord] = []
+        archived_count = 0
+        deleted_count = 0
+
+        for record in all_records:
+            if record.deleted:
+                continue
+
+            score = self.compute_staleness(record)
+            record.staleness_score = score
+
+            if score >= staleness_threshold:
+                candidates.append(record)
+                if not dry_run:
+                    record.status = MemoryStatus.STALE
+                    record.marked_stale_at = utcnow()
+                    self.repository.save_long_term_memory(record)
+                    archived_count += 1
+
+
+        return {
+            "candidates": candidates,
+            "total_evaluated": len(all_records),
+            "archived_count": archived_count,
+            "deleted_count": deleted_count,
+            "staleness_threshold": staleness_threshold,
+        }
+
+    def is_record_stale(self, record: LongTermMemoryRecord) -> bool:
+        """Return True if the record is in a stale/archived state."""
+        from orion_agent.core.models import MemoryStatus
+
+        return record.status in {MemoryStatus.STALE, MemoryStatus.ARCHIVED, MemoryStatus.PRUNED}

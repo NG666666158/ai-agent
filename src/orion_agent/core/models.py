@@ -292,6 +292,7 @@ class ProgressUpdate(BaseModel):
 
 class MemoryStatus(str, Enum):
     ACTIVE = "ACTIVE"
+    STALE = "STALE"
     PRUNED = "PRUNED"
     ARCHIVED = "ARCHIVED"
 
@@ -340,6 +341,9 @@ class LongTermMemoryRecord(BaseModel):
     deleted_at: datetime | None = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+    # Staleness: computed by cleanup policy based on age and access patterns
+    staleness_score: float | None = None  # None means not yet evaluated
+    marked_stale_at: datetime | None = None
 
 
 class ToolDefinition(BaseModel):

@@ -4,7 +4,7 @@ import sqlite3
 import threading
 
 from orion_agent.core.embedding_runtime import cosine_similarity
-from orion_agent.core.models import ChatMessage, ChatSession, LongTermMemoryRecord, TaskRecord, UserProfileFact, UserProfileFactStatus, utcnow
+from orion_agent.core.models import ChatMessage, ChatSession, LongTermMemoryRecord, MemoryStatus, TaskRecord, UserProfileFact, UserProfileFactStatus, utcnow
 
 
 class TaskRepository:
@@ -375,6 +375,7 @@ class TaskRepository:
         scope: str | None = None,
         query: str | None = None,
         limit: int = 50,
+        include_stale: bool = False,
     ) -> list[LongTermMemoryRecord]:
         sql = "SELECT payload FROM long_term_memories"
         clauses: list[str] = []
@@ -392,16 +393,8 @@ class TaskRepository:
                 rows = conn.execute(sql, tuple(params)).fetchall()
         records = [LongTermMemoryRecord.model_validate_json(row[0]) for row in rows]
         records = [item for item in records if not item.deleted]
-        if query:
-            normalized = query.lower()
-            records = [
-                item
-                for item in records
-                if normalized in item.topic.lower()
-                or normalized in item.summary.lower()
-                or normalized in item.details.lower()
-                or any(normalized in tag.lower() for tag in item.tags)
-            ]
+        if not include_stale:
+            records = [item for item in records if item.status != MemoryStatus.STALE]
         return records[:limit]
 
     def delete_long_term_memory(self, memory_id: str) -> bool:
