@@ -2,6 +2,18 @@
 Started: 2026-04-22T08:57:38
 ---
 
+## 2026-04-22T10:00:00 - US-R21
+- Added discardable field to MemoryEntry model
+- Added _summarize_step() to ExecutionEngine that marks raw entries discardable and writes compact summary
+- Added _step_memory_kind() helper to map steps to their memory kinds
+- Updated ContextBuilder to filter discardable entries from working_memory
+- Wired _task_memory from TaskRecord.memory into ContextBuilder via TaskCreateRequest
+- Updated repository.save_user_profile_fact to preserve existing updated_at (only set if None)
+- Files changed: src/orion_agent/core/models.py, src/orion_agent/core/execution_engine.py, src/orion_agent/core/context_builder.py, src/orion_agent/core/runtime_agent.py, tests/unit/test_profile_and_memory.py
+- Quality checks: pytest tests/unit/test_profile_and_memory.py (22 passed), tests/unit/test_execution_nodes.py (2 passed), tests/unit/test_execution_engine_tool_calls.py (19 passed)
+- Learnings: ContextBuilder must receive task memory at build time via TaskCreateRequest._task_memory since it only has the request, not the full task
+---
+
 ## 2026-04-22T09:30:00 - US-R20
 - Expanded PreferenceCategory enum with framework, domain, output_format, tone categories
 - Added extraction patterns for all new categories in UserProfileManager.extract_facts()

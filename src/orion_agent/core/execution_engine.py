@@ -28,6 +28,21 @@ from orion_agent.core.state_machine import transition_task
 from orion_agent.core.tools import ToolExecutionError, ToolRegistry
 
 
+def _step_memory_kind(step: Step) -> str | None:
+    """Return the memory kind for a completed step's raw output, or None if not applicable."""
+    if step.name == "Parse Task":
+        return "parsed_goal"
+    if step.name == "Recall Memory":
+        return "recalled_memories"
+    if step.tool_name == "read_local_file":
+        return "source_material"
+    if step.tool_name == "web_search":
+        return "web_results"
+    if step.name == "Create Plan":
+        return "execution_plan"
+    return None
+
+
 class ExecutionEngine:
     """Run plan steps, call tools, and synthesize the final deliverable."""
 
@@ -153,6 +168,8 @@ class ExecutionEngine:
                 step.status = StepStatus.DONE
                 task.checkpoint.last_completed_step_id = step.id
                 task.checkpoint.last_completed_step_name = step.name
+                # US-R21: write compact summary, mark raw intermediate as discardable
+                self._summarize_step(task, step)
 
             if on_task_update is not None:
                 on_task_update(task)
@@ -273,6 +290,28 @@ class ExecutionEngine:
             lines.append(f"- Source summary: {source_material}")
         return "\n".join(lines)
 
+    def _summarize_step(self, task: TaskRecord, step: Step) -> None:
+        """US-R21: write compact summary for a completed step, mark raw output as discardable.
+
+        After a step completes, its raw output can be large (tool results, web search,
+        source material). Instead of keeping the full text in working memory, we write
+        a compact summary and mark the raw entry as discardable so the context builder
+        can omit it.
+        """
+        # Find raw entries for this step's output kind and mark them discardable
+        kind = _step_memory_kind(step)
+        if kind is None:
+            return
+
+        # Mark existing raw entries for this step as discardable
+        for entry in task.memory:
+            if entry.kind == kind and not entry.discardable:
+                entry.discardable = True
+
+        # Write a compact summary entry
+        summary_content = f"[{step.name}] {step.output[:120] if step.output else '(no output)'}"
+        self.memory_manager.write(task, f"{kind}_summary", summary_content)
+
     def _generate_deliverable(
         self,
         task: TaskRecord,
@@ -303,7 +342,7 @@ class ExecutionEngine:
             user_prompt=user_prompt,
             on_result_stream=on_result_stream,
         )
-        draft = self._normalize_deliverable_draft(draft)
+        draft = self._normalize_deliverable_draft(draft, title=parsed_goal.deliverable_title)
 
         if on_progress is not None:
             on_progress("writing", "正在整理 Markdown 结构。", "补充标题、工具调用摘要和来源信息。")
@@ -348,7 +387,7 @@ class ExecutionEngine:
             return True
         return buffer_text.endswith(("\n", "。", "！", "？", "；", ".", "!", "?", ";"))
 
-    def _normalize_deliverable_draft(self, draft: str) -> str:
+    def _normalize_deliverable_draft(self, draft: str, *, title: str | None = None) -> str:
         normalized = draft.replace("\r\n", "\n").strip()
         if not normalized:
             return normalized
@@ -367,7 +406,17 @@ class ExecutionEngine:
             while lines and not lines[0].strip():
                 lines.pop(0)
 
-        return "\n".join(lines).strip()
+        if title and lines and lines[0].strip() in {f"# {title}", f"## {title}"}:
+            lines.pop(0)
+            while lines and not lines[0].strip():
+                lines.pop(0)
+
+        cleaned = "\n".join(lines).strip()
+        for marker in ("\n## 工具调用", "\n## Tool Invocations", "\n## 来源文件", "\n## Source"):
+            if marker in cleaned:
+                cleaned = cleaned.split(marker, 1)[0].rstrip()
+
+        return cleaned
 
     def _compose_deliverable_markdown(
         self,
@@ -378,6 +427,13 @@ class ExecutionEngine:
         source_path: str | None,
     ) -> str:
         step_id = next(step.id for step in task.steps if step.tool_name == "generate_markdown")
+        return self._call_tool(
+            task=task,
+            step_id=step_id,
+            tool_name="generate_markdown",
+            title="",
+            sections=[{"heading": "", "content": draft}],
+        )
         sections = [
             {"heading": "回答正文", "content": draft},
             {"heading": "工具调用", "content": self._serialize_tool_invocations(task)},
@@ -408,10 +464,14 @@ class ExecutionEngine:
 
     def _serialize_tool_invocations(self, task: TaskRecord) -> str:
         if not task.tool_invocations:
-            return "- No tools were called."
+            return "- 本轮对话未调用外部工具。"
         lines = []
         for item in task.tool_invocations:
-            preview = item.output_preview or item.error or ""
+            tool_label = item.display_name or item.display_label or item.tool_name
+            if item.tool_name == "generate_markdown" and item.status == ToolCallStatus.SUCCESS:
+                preview = "已生成最终 Markdown 结果。"
+            else:
+                preview = item.output_preview or item.error or ""
             lines.append(
                 f"- {item.tool_name} ({item.status.value}, attempt {item.attempt_count}, category {item.failure_category.value}): {preview}"
             )

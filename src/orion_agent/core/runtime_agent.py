@@ -25,6 +25,10 @@ from orion_agent.core.models import (
     ContextTraceEntry,
     FailureCategory,
     FailureResolution,
+    IngestionCommitRequest,
+    IngestionCommitResponse,
+    IngestionPreviewRequest,
+    IngestionPreviewResponse,
     LongTermMemoryRecord,
     MemorySource,
     MemoryUpdateRequest,
@@ -52,6 +56,7 @@ from orion_agent.core.models import (
     UserProfileUpdateRequest,
     utcnow,
 )
+from orion_agent.core.ingestion import DocumentIngestionService
 from orion_agent.core.observability import Timer, log_event
 from orion_agent.core.planner import Planner
 from orion_agent.core.profile import UserProfileManager
@@ -91,6 +96,11 @@ class AgentService:
         self.vector_store = build_vector_store(self.settings, self.repository)
         self.memory_manager = TaskMemoryManager()
         self.long_term_memory = LongTermMemoryManager(self.repository, self.embedder, self.vector_store)
+        self.ingestion_service = DocumentIngestionService(
+            repository=self.repository,
+            embedder=self.embedder,
+            memory_manager=self.long_term_memory,
+        )
         self.profile_manager = UserProfileManager(self.repository)
         self.context_builder = ContextBuilder(self.profile_manager, self.repository)
         self.tool_registry = ToolRegistry(self.settings)
@@ -205,6 +215,12 @@ class AgentService:
 
     def delete_memory(self, memory_id: str) -> bool:
         return self.repository.delete_long_term_memory(memory_id)
+
+    def preview_ingestion(self, request: IngestionPreviewRequest) -> IngestionPreviewResponse:
+        return self.ingestion_service.preview(request)
+
+    def commit_ingestion(self, request: IngestionCommitRequest) -> IngestionCommitResponse:
+        return self.ingestion_service.commit(request)
 
     def stream_task_events(self, task_id: str, poll_interval: float = 0.18):
         last_signature: tuple[str, str, int, int, str, str, int, str, int] | None = None
@@ -410,6 +426,8 @@ class AgentService:
         if task is None:
             raise ValueError(f"Task not found: {task_id}")
 
+        # US-R21: pass working memory entries to ContextBuilder so discardable filtering applies
+        request._task_memory = task.memory
         task.context_layers = self._build_context_layers(request)
         self._append_progress(task, "context", "正在加载上下文分层。", self._render_context_layers(task.context_layers)[:240])
         self._update_checkpoint(task, phase="CONTEXT", stage="context_ready", resumable=True, context_version=task.context_layers.version)

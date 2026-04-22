@@ -138,6 +138,8 @@ class TaskCreateRequest(BaseModel):
     memory_scope: str = Field(default="default")
     session_id: str | None = Field(default=None)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # Internal: working memory entries to include in context (not serialized over API)
+    _task_memory: list[MemoryEntry] | None = None
 
 
 class TaskApprovalDecisionRequest(BaseModel):
@@ -166,6 +168,62 @@ class MemoryUpdateRequest(BaseModel):
     summary: str | None = None
     details: str | None = None
     tags: list[str] | None = None
+
+
+class IngestionStrategy(str, Enum):
+    RECURSIVE = "recursive"
+    PARENT_CHILD = "parent_child"
+    SEMANTIC = "semantic"
+
+
+class IngestionPreviewRequest(BaseModel):
+    title: str | None = None
+    text: str = Field(..., min_length=1)
+    scope: str = Field(default="default")
+    memory_type: str = Field(default="document_note")
+    chunk_strategy: IngestionStrategy = Field(default=IngestionStrategy.RECURSIVE)
+    max_chunk_chars: int = Field(default=600, ge=8, le=4000)
+    overlap_chars: int = Field(default=80, ge=0, le=1000)
+    tags: list[str] = Field(default_factory=list)
+
+
+class IngestionCommitRequest(IngestionPreviewRequest):
+    pass
+
+
+class ChunkPreview(BaseModel):
+    chunk_id: str
+    parent_id: str | None = None
+    chunk_index: int
+    text: str
+    char_count: int
+    summary: str
+    embedding_preview: list[float] = Field(default_factory=list)
+    embedding_dimensions: int = 0
+
+
+class IngestionPreviewResponse(BaseModel):
+    document_id: str
+    title: str
+    strategy: IngestionStrategy
+    scope: str
+    memory_type: str
+    total_chars: int
+    total_chunks: int
+    parent_documents_count: int = 0
+    ready_to_store: bool = True
+    chunks: list[ChunkPreview] = Field(default_factory=list)
+
+
+class IngestionCommitResponse(BaseModel):
+    document_id: str
+    title: str
+    strategy: IngestionStrategy
+    scope: str
+    stored_count: int
+    parent_count: int
+    chunk_count: int
+    memory_ids: list[str] = Field(default_factory=list)
 
 
 class UserProfileFactStatus(str, Enum):
@@ -220,6 +278,7 @@ class MemoryEntry(BaseModel):
     id: str = Field(default_factory=lambda: f"mem_{uuid4().hex[:8]}")
     kind: str
     content: str
+    discardable: bool = False  # True → can be omitted from context after summarization
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -259,6 +318,10 @@ class LongTermMemoryRecord(BaseModel):
     scope: str = "default"
     user_id: str | None = None
     memory_type: str = "task_result"
+    document_id: str | None = None
+    parent_id: str | None = None
+    chunk_index: int | None = None
+    chunk_strategy: str | None = None
     topic: str
     summary: str
     details: str
@@ -845,4 +908,3 @@ def build_execution_nodes_v2(record: TaskRecord) -> list[ExecutionNode]:
 
 
 ChatSessionDetail.model_rebuild()
-

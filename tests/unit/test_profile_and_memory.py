@@ -300,5 +300,100 @@ class ProfileExtractionAndDecayTests(unittest.TestCase):
         self.assertNotIn(fact.id, active_ids)
 
 
+class WorkingMemoryCompressionTests(unittest.TestCase):
+    """US-R21: Working memory compression and disposable intermediate results."""
+
+    def test_memory_entry_supports_discardable_flag(self) -> None:
+        # 验收标准：MemoryEntry 支持 discardable 字段
+        from orion_agent.core.models import MemoryEntry
+
+        entry = MemoryEntry(kind="web_results", content="large output...", discardable=True)
+        self.assertTrue(entry.discardable)
+
+        default_entry = MemoryEntry(kind="user_goal", content="goal")
+        self.assertFalse(default_entry.discardable)
+
+    def test_context_builder_filters_discardable_working_memory(self) -> None:
+        # 验收标准：ContextBuilder 过滤 discardable 条目
+        from orion_agent.core.context_builder import ContextBuilder
+        from orion_agent.core.models import ContextLayer, MemoryEntry, TaskCreateRequest
+
+        repository = TaskRepository(db_path=":memory:")
+        profile_manager = UserProfileManager(repository)
+        builder = ContextBuilder(profile_manager, repository)
+
+        # Create request with discardable and non-discardable memory entries
+        request = TaskCreateRequest(goal="test goal", memory_scope="default")
+        request._task_memory = [
+            MemoryEntry(kind="raw_output", content="large raw content", discardable=True),
+            MemoryEntry(kind="user_goal", content="the actual goal", discardable=False),
+        ]
+
+        context: ContextLayer = builder.build(request)
+        # Only non-discardable entry should appear in working_memory
+        self.assertTrue(any("the actual goal" in wm for wm in context.working_memory))
+        self.assertFalse(any("large raw content" in wm for wm in context.working_memory))
+        repository.close()
+
+    def test_summarize_step_marks_raw_discardable_and_writes_summary(self) -> None:
+        # 验收标准：_summarize_step 将原始条目标记为 discardable 并写入摘要
+        from orion_agent.core.execution_engine import ExecutionEngine, _step_memory_kind
+        from orion_agent.core.memory import TaskMemoryManager
+        from orion_agent.core.models import Step, StepStatus, TaskRecord
+
+        repository = TaskRepository(db_path=":memory:")
+        memory_manager = TaskMemoryManager()
+        executor = ExecutionEngine(
+            tool_registry=None,  # type: ignore
+            memory_manager=memory_manager,
+            llm_client=None,  # type: ignore
+            prompts=None,  # type: ignore
+            settings=None,  # type: ignore
+        )
+
+        task = TaskRecord(title="test")
+        step = Step(name="Create Plan", description="make plan", status=StepStatus.DONE)
+        step.output = "x" * 200
+        task.steps.append(step)
+
+        # Write raw entry before summarization
+        memory_manager.write(task, "execution_plan", "x" * 200)
+        self.assertFalse(task.memory[0].discardable)
+
+        # Summarize step
+        executor._summarize_step(task, step)
+
+        # Raw entry should now be discardable
+        self.assertTrue(task.memory[0].discardable)
+        # Summary entry should exist and not be discardable
+        summary_entries = [e for e in task.memory if e.kind == "execution_plan_summary"]
+        self.assertTrue(len(summary_entries) > 0)
+        self.assertFalse(summary_entries[0].discardable)
+        repository.close()
+
+    def test_step_memory_kind_returns_correct_kind(self) -> None:
+        # 验收标准：_step_memory_kind 返回正确的记忆类型
+        from orion_agent.core.execution_engine import _step_memory_kind
+        from orion_agent.core.models import Step, StepStatus
+
+        step_parse = Step(name="Parse Task", description="", status=StepStatus.DONE)
+        self.assertEqual(_step_memory_kind(step_parse), "parsed_goal")
+
+        step_recall = Step(name="Recall Memory", description="", status=StepStatus.DONE)
+        self.assertEqual(_step_memory_kind(step_recall), "recalled_memories")
+
+        step_plan = Step(name="Create Plan", description="", status=StepStatus.DONE)
+        self.assertEqual(_step_memory_kind(step_plan), "execution_plan")
+
+        step_file = Step(name="Read File", description="", tool_name="read_local_file", status=StepStatus.DONE)
+        self.assertEqual(_step_memory_kind(step_file), "source_material")
+
+        step_web = Step(name="Web Search", description="", tool_name="web_search", status=StepStatus.DONE)
+        self.assertEqual(_step_memory_kind(step_web), "web_results")
+
+        step_other = Step(name="Unknown Step", description="", status=StepStatus.DONE)
+        self.assertIsNone(_step_memory_kind(step_other))
+
+
 if __name__ == "__main__":
     unittest.main()

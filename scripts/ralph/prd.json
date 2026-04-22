@@ -30,6 +30,17 @@
         "Add or update focused backend tests for working-memory summarization, trimming, and discardable output behavior"
       ],
       "priority": 2,
+      "passes": true,
+      "notes": ""
+      "description": "As a runtime maintainer, I want completed execution steps to write compressed summaries into working memory while allowing raw intermediate outputs to be discarded so context stays concise during longer runs.",
+      "acceptanceCriteria": [
+        "Runtime step completion writes a compact summary into working_memory instead of only preserving raw intermediate text",
+        "Intermediate results can be marked as discardable or omitted from future context assembly after the summary is captured",
+        "ContextBuilder and runtime context payloads expose the updated working-memory behavior without breaking existing consumers",
+        "The console and task detail views remain compatible with the new summarized working-memory representation",
+        "Add or update focused backend tests for working-memory summarization, trimming, and discardable output behavior"
+      ],
+      "priority": 2,
       "passes": false,
       "notes": ""
     },

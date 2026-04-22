@@ -103,13 +103,22 @@ class ContextBuilder:
             )
         )
 
-        # working_memory (always fits in limit, no trimming needed)
+        # working_memory (filter discardable entries from task memory)
+        # Non-discardable entries come from the task's memory list;
+        # initial entries from the request itself are never discardable.
         working_raw = [
             f"goal={request.goal}",
             f"expected_output={request.expected_output}",
             f"memory_scope={request.memory_scope}",
-        ][: budget["working_memory"]]
-        working_memory = [self._trim_text(item, 240) for item in working_raw]
+        ]
+        # Append non-discardable entries from the task's working memory if available
+        if hasattr(request, "_task_memory"):
+            working_raw.extend(
+                entry.content
+                for entry in request._task_memory
+                if not entry.discardable
+            )
+        working_memory = [self._trim_text(item, 240) for item in working_raw[: budget["working_memory"]]]
         trace_entries.append(
             ContextTraceEntry(
                 layer="working_memory",
