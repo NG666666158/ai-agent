@@ -299,6 +299,17 @@ class ProfileExtractionAndDecayTests(unittest.TestCase):
         self.assertIn(new_fact.id, active_ids)
         self.assertNotIn(fact.id, active_ids)
 
+    def test_update_fact_applies_new_value_instead_of_reusing_old_value(self) -> None:
+        # 验收标准：更新画像值时，应该写入传入的新值，而不是继续保留旧值
+        fact = self.profile_manager.extract_facts("我想学 Java")[0]
+        saved = self.profile_manager.remember(fact)
+
+        updated = self.profile_manager.update_fact(saved.id, value="Python")
+
+        self.assertIsNotNone(updated)
+        assert updated is not None
+        self.assertEqual(updated.value, "Python")
+
 
 class WorkingMemoryCompressionTests(unittest.TestCase):
     """US-R21: Working memory compression and disposable intermediate results."""
@@ -480,6 +491,15 @@ class RerankIntegrationTests(unittest.TestCase):
         # BaseReranker should be a Protocol with a rerank method
         self.assertTrue(callable(getattr(BaseReranker, "rerank", None)))
 
+    def test_agent_service_wires_default_reranker_into_runtime_manager(self) -> None:
+        # 验收标准：运行时默认接入 rerank fallback，而不是只定义类型不装配
+        from orion_agent.core.memory import NullReranker
+        from orion_agent.core.runtime_agent import AgentService
+
+        service = AgentService(repository=self.repository)
+
+        self.assertIsInstance(service.long_term_memory._reranker, NullReranker)
+
     @staticmethod
     def _make_manual_source() -> "MemorySource":
         from orion_agent.core.models import MemorySource
@@ -637,6 +657,33 @@ class MemoryExpirationAndCleanupTests(unittest.TestCase):
         listed_ids = {r.id for r in listed}
         self.assertIn(active.id, listed_ids)
         self.assertNotIn(stale.id, listed_ids)
+
+    def test_recall_excludes_stale_records_from_candidates(self) -> None:
+        # 验收标准：被标记为 STALE 的记忆不应继续参与召回
+        from orion_agent.core.models import MemoryStatus
+
+        active = LongTermMemoryRecord(
+            topic="python active",
+            summary="fresh python memory",
+            details="active preference",
+            memory_type="preference",
+            status=MemoryStatus.ACTIVE,
+        )
+        stale = LongTermMemoryRecord(
+            topic="python stale",
+            summary="old python memory",
+            details="stale preference",
+            memory_type="preference",
+            status=MemoryStatus.STALE,
+        )
+        self.memory_manager.remember(active)
+        self.memory_manager.remember(stale)
+
+        results = self.memory_manager.recall("python", scope="default", limit=10)
+        result_ids = {item.id for item in results}
+
+        self.assertIn(active.id, result_ids)
+        self.assertNotIn(stale.id, result_ids)
 
 
 if __name__ == "__main__":

@@ -209,7 +209,7 @@ class UserProfileManager:
         if label is not None:
             fact.label = label.strip() or fact.label
         if value is not None:
-            fact.value = self._normalize(fact.value.strip(), fact.category)
+            fact.value = self._normalize(value.strip(), fact.category)
         if confidence is not None:
             fact.confidence = confidence
         if summary is not None:

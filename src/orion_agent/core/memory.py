@@ -170,7 +170,7 @@ class LongTermMemoryManager:
 
         memory_ids = self.vector_store.search(query_embedding=query_embedding, scope=scope, limit=candidate_limit)
         for record in self.repository.get_long_term_memories_by_ids(memory_ids):
-            if record.source.source_type == "manual_ingest_parent":
+            if self._should_skip_candidate(record):
                 continue
             candidates[record.id] = record
             channels[record.id].add("vector_store")
@@ -180,13 +180,13 @@ class LongTermMemoryManager:
             scope=scope,
             limit=candidate_limit,
         ):
-            if record.source.source_type == "manual_ingest_parent":
+            if self._should_skip_candidate(record):
                 continue
             candidates.setdefault(record.id, record)
             channels[record.id].add("local_vector")
 
         for record in self.repository.search_long_term_memories(query=query, scope=scope, limit=candidate_limit):
-            if record.source.source_type == "manual_ingest_parent":
+            if self._should_skip_candidate(record):
                 continue
             candidates.setdefault(record.id, record)
             channels[record.id].add("lexical")
@@ -233,6 +233,15 @@ class LongTermMemoryManager:
 
         self._touch_access_metadata(results)
         return results
+
+    def _should_skip_candidate(self, record: LongTermMemoryRecord) -> bool:
+        if record.deleted:
+            return True
+        if record.status != MemoryStatus.ACTIVE:
+            return True
+        if record.source.source_type == "manual_ingest_parent":
+            return True
+        return False
 
     def _touch_access_metadata(self, records: list[LongTermMemoryRecord]) -> None:
         """Persist access counters without storing query-specific retrieval annotations."""

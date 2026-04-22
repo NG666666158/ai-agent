@@ -14,7 +14,7 @@ from orion_agent.core.embedding_runtime import build_embedder
 from orion_agent.core.evaluation import EvaluationResult, TaskEvaluator
 from orion_agent.core.execution_engine import ExecutionEngine
 from orion_agent.core.llm_runtime import BaseLLMClient, build_llm_client
-from orion_agent.core.memory import LongTermMemoryManager, TaskMemoryManager
+from orion_agent.core.memory import LongTermMemoryManager, NullReranker, TaskMemoryManager
 from orion_agent.core.models import (
     ChatMessage,
     ChatMessageRole,
@@ -95,7 +95,12 @@ class AgentService:
         self.embedder = build_embedder(self.settings)
         self.vector_store = build_vector_store(self.settings, self.repository)
         self.memory_manager = TaskMemoryManager()
-        self.long_term_memory = LongTermMemoryManager(self.repository, self.embedder, self.vector_store)
+        self.long_term_memory = LongTermMemoryManager(
+            self.repository,
+            self.embedder,
+            self.vector_store,
+            reranker=NullReranker(self.embedder),
+        )
         self.ingestion_service = DocumentIngestionService(
             repository=self.repository,
             embedder=self.embedder,
