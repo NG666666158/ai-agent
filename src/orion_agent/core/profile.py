@@ -1,13 +1,29 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone, timedelta
+from enum import Enum
 
 from orion_agent.core.models import UserProfileFact, UserProfileFactStatus, utcnow
 from orion_agent.core.repository import TaskRepository
 
 
+class PreferenceCategory(str, Enum):
+    LEARNING_LANGUAGE = "learning_language"
+    PREFERRED_LANGUAGE = "preferred_language"
+    FRAMEWORK = "framework"
+    DOMAIN = "domain"
+    OUTPUT_FORMAT = "output_format"
+    TONE = "tone"
+
+
 class UserProfileManager:
     """Stores stable user preferences and retrieves relevant profile facts."""
+
+    # Confidence decay: half-life in days
+    CONFIDENCE_HALF_LIFE_DAYS = 30.0
+    # Minimum effective confidence floor
+    MIN_EFFECTIVE_CONFIDENCE = 0.1
 
     LANGUAGE_PATTERNS = [
         (
@@ -15,7 +31,7 @@ class UserProfileManager:
                 r"(?:我想学|想学|最近想学|更想学|最想学|偏向学)\s*(java|python|go|golang|rust|c\+\+|typescript|javascript)",
                 re.IGNORECASE,
             ),
-            "learning_language",
+            PreferenceCategory.LEARNING_LANGUAGE,
             "学习语言偏好",
         ),
         (
@@ -23,8 +39,76 @@ class UserProfileManager:
                 r"(?:我喜欢|喜欢|偏好|更喜欢)\s*(java|python|go|golang|rust|c\+\+|typescript|javascript)",
                 re.IGNORECASE,
             ),
-            "preferred_language",
+            PreferenceCategory.PREFERRED_LANGUAGE,
             "语言偏好",
+        ),
+    ]
+
+    FRAMEWORK_PATTERNS = [
+        (
+            re.compile(
+                r"(?:我喜欢|偏好|更偏好|使用|习惯用|熟悉)\s*(react|vue|angular|next\.?js|fastapi|flask|django|spring|nextjs)",
+                re.IGNORECASE,
+            ),
+            PreferenceCategory.FRAMEWORK,
+            "框架偏好",
+        ),
+    ]
+
+    DOMAIN_PATTERNS = [
+        (
+            re.compile(
+                r"(?:我主要做|主要做|工作领域|行业|业务领域)\s*(前端|后端|全栈|移动端|嵌入式|数据|机器学习|devops|云原生|区块链|游戏)",
+                re.IGNORECASE,
+            ),
+            PreferenceCategory.DOMAIN,
+            "工作领域",
+        ),
+        (
+            re.compile(
+                r"(?:关注|感兴趣|想深入)\s*(前端|后端|全栈|移动端|嵌入式|数据|机器学习|devops|云原生|区块链|游戏)",
+                re.IGNORECASE,
+            ),
+            PreferenceCategory.DOMAIN,
+            "兴趣领域",
+        ),
+    ]
+
+    OUTPUT_FORMAT_PATTERNS = [
+        (
+            re.compile(
+                r"(?:喜欢|偏好|想要)\s*(markdown|表格|列表|代码|图表|mermaid|json|xml|纯文本)",
+                re.IGNORECASE,
+            ),
+            PreferenceCategory.OUTPUT_FORMAT,
+            "输出格式偏好",
+        ),
+        (
+            re.compile(
+                r"(?:结果?用|输出格式|写成)\s*(markdown|表格|列表|代码|图表|mermaid|json|xml|纯文本)",
+                re.IGNORECASE,
+            ),
+            PreferenceCategory.OUTPUT_FORMAT,
+            "输出格式偏好",
+        ),
+    ]
+
+    TONE_PATTERNS = [
+        (
+            re.compile(
+                r"(?:语气|风格|口吻|说话方式)\s*(简洁|详细|正式|轻松|技术|友好|严谨)",
+                re.IGNORECASE,
+            ),
+            PreferenceCategory.TONE,
+            "交流风格偏好",
+        ),
+        (
+            re.compile(
+                r"(?:请|能不能|可以)\s*(简洁|详细|正式|轻松|技术|友好|严谨)\s*(说|讲|回答|解释|写)",
+                re.IGNORECASE,
+            ),
+            PreferenceCategory.TONE,
+            "交流风格偏好",
         ),
     ]
 
@@ -46,36 +130,58 @@ class UserProfileManager:
             return []
 
         facts: list[UserProfileFact] = []
-        for pattern, category, label in self.LANGUAGE_PATTERNS:
-            for match in pattern.finditer(content):
-                normalized = self._normalize_language(match.group(1).strip())
-                facts.append(
-                    UserProfileFact(
-                        category=category,
-                        label=label,
-                        value=normalized,
-                        confidence=0.92,
-                        source_session_id=session_id,
-                        source_message_id=message_id,
-                        source_task_id=task_id,
-                        summary=f"用户当前表达出对 {normalized} 的稳定偏好。",
+        all_pattern_groups = [
+            (self.LANGUAGE_PATTERNS, self._normalize_language),
+            (self.FRAMEWORK_PATTERNS, self._normalize_framework),
+            (self.DOMAIN_PATTERNS, self._normalize_domain),
+            (self.OUTPUT_FORMAT_PATTERNS, self._normalize_output_format),
+            (self.TONE_PATTERNS, lambda v: v.strip()),
+        ]
+
+        for pattern_group, normalizer in all_pattern_groups:
+            for pattern, category, label in pattern_group:
+                for match in pattern.finditer(content):
+                    normalized = normalizer(match.group(1).strip())
+                    facts.append(
+                        UserProfileFact(
+                            category=category.value,
+                            label=label,
+                            value=normalized,
+                            confidence=0.92,
+                            source_session_id=session_id,
+                            source_message_id=message_id,
+                            source_task_id=task_id,
+                            summary=f"用户当前表达出对 {normalized} 的稳定偏好。",
+                        )
                     )
-                )
         return self._deduplicate(facts)
 
+    def effective_confidence(self, fact: UserProfileFact) -> float:
+        """Compute time-decayed effective confidence.
+
+        Returns raw confidence for ACTIVE facts, applying exponential decay
+        based on time since last update. ARCHIVED/MERGED facts return the floor.
+        """
+        if fact.status != UserProfileFactStatus.ACTIVE:
+            return self.MIN_EFFECTIVE_CONFIDENCE
+        now = utcnow()
+        age_delta = now - fact.updated_at
+        age_days = age_delta.total_seconds() / 86400.0
+        decay_factor = 0.5 ** (age_days / self.CONFIDENCE_HALF_LIFE_DAYS)
+        return max(fact.confidence * decay_factor, self.MIN_EFFECTIVE_CONFIDENCE)
+
     def remember(self, fact: UserProfileFact) -> UserProfileFact:
-        fact.value = self._normalize_language(fact.value)
+        """Store a profile fact, preserving prior history instead of blind overwrite.
+
+        When a matching fact exists (same category + value), archive it and
+        store the new one as a fresh record with its own timeline entry.
+        """
         existing = self.repository.find_user_profile_fact(fact.category, fact.value)
         if existing is not None:
-            existing.label = fact.label
-            existing.confidence = max(existing.confidence, fact.confidence)
-            existing.summary = fact.summary or existing.summary
-            existing.status = UserProfileFactStatus.ACTIVE
-            existing.superseded_by = None
-            existing.source_session_id = fact.source_session_id
-            existing.source_message_id = fact.source_message_id
-            existing.source_task_id = fact.source_task_id
-            return self.repository.save_user_profile_fact(existing)
+            # Archive the old record so history remains traceable
+            existing.status = UserProfileFactStatus.ARCHIVED
+            existing.superseded_by = None  # preserved for timeline; history is readable via prior records
+            self.repository.save_user_profile_fact(existing)
 
         saved = self.repository.save_user_profile_fact(fact)
         self._archive_conflicts(saved)
@@ -103,7 +209,7 @@ class UserProfileManager:
         if label is not None:
             fact.label = label.strip() or fact.label
         if value is not None:
-            fact.value = self._normalize_language(value.strip())
+            fact.value = self._normalize(fact.value.strip(), fact.category)
         if confidence is not None:
             fact.confidence = confidence
         if summary is not None:
@@ -144,19 +250,22 @@ class UserProfileManager:
     def match_relevant(self, query: str, limit: int = 5) -> list[UserProfileFact]:
         normalized_query = query.lower()
         facts = self.list_facts(limit=50)
-        scored: list[tuple[int, UserProfileFact]] = []
+        scored: list[tuple[float, UserProfileFact]] = []
         for fact in facts:
             score = 0
             if fact.value.lower() in normalized_query:
                 score += 3
             if any(keyword in query for keyword in self.PROFILE_QUERY_KEYWORDS):
                 score += 2
-            if fact.category in {"learning_language", "preferred_language"} and any(
-                keyword in query for keyword in ["语言", "技术栈", "学习方向", "最想学"]
-            ):
+            if fact.category in {
+                PreferenceCategory.LEARNING_LANGUAGE.value,
+                PreferenceCategory.PREFERRED_LANGUAGE.value,
+            } and any(keyword in query for keyword in ["语言", "技术栈", "学习方向", "最想学"]):
                 score += 2
             if score > 0:
-                scored.append((score, fact))
+                # Weight by effective (time-decayed) confidence
+                effective = self.effective_confidence(fact)
+                scored.append((score * effective, fact))
         scored.sort(key=lambda item: (-item[0], -item[1].updated_at.timestamp()))
         results = [item[1] for item in scored[:limit]]
         # Track governance access metadata and persist
@@ -195,6 +304,50 @@ class UserProfileManager:
             "c++": "C++",
         }
         return mapping.get(normalized, value)
+
+    def _normalize_framework(self, value: str) -> str:
+        normalized = value.lower()
+        mapping = {
+            "next.js": "Next.js",
+            "nextjs": "Next.js",
+            "vue": "Vue",
+            "react": "React",
+            "angular": "Angular",
+            "fastapi": "FastAPI",
+            "flask": "Flask",
+            "django": "Django",
+            "spring": "Spring",
+        }
+        return mapping.get(normalized, value.title())
+
+    def _normalize_domain(self, value: str) -> str:
+        return value.strip()
+
+    def _normalize_output_format(self, value: str) -> str:
+        normalized = value.lower()
+        mapping = {
+            "markdown": "Markdown",
+            "mermaid": "Mermaid 图",
+            "json": "JSON",
+            "xml": "XML",
+            "表格": "表格",
+            "列表": "列表",
+            "代码": "代码块",
+            "图表": "图表",
+            "纯文本": "纯文本",
+        }
+        return mapping.get(normalized, value)
+
+    def _normalize(self, value: str, category: str) -> str:
+        if category in {PreferenceCategory.LEARNING_LANGUAGE.value, PreferenceCategory.PREFERRED_LANGUAGE.value}:
+            return self._normalize_language(value)
+        if category == PreferenceCategory.FRAMEWORK.value:
+            return self._normalize_framework(value)
+        if category == PreferenceCategory.DOMAIN.value:
+            return self._normalize_domain(value)
+        if category == PreferenceCategory.OUTPUT_FORMAT.value:
+            return self._normalize_output_format(value)
+        return value.strip()
 
     def _deduplicate(self, facts: list[UserProfileFact]) -> list[UserProfileFact]:
         unique: dict[tuple[str, str], UserProfileFact] = {}

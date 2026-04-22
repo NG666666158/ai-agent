@@ -203,7 +203,8 @@ class TaskRepository:
         return message
 
     def save_user_profile_fact(self, fact: UserProfileFact) -> UserProfileFact:
-        fact.updated_at = utcnow()
+        if fact.updated_at is None:
+            fact.updated_at = utcnow()
         payload = fact.model_dump_json()
         with self._lock:
             with self._connect() as conn:

@@ -1,80 +1,65 @@
 {
   "project": "Orion Agent",
-  "branchName": "ralph/orion-agent-enterprise-evolution",
-  "description": "Round 2 runtime hardening: connect the recovery state machine to the live runtime path, complete context governance contracts, unify execution trace payloads for console consumers, and add a durable regression harness before moving into broader platform governance.",
+  "branchName": "ralph/profile-memory-rerank-governance",
+  "description": "Upgrade profile modeling, short-term working memory governance, retrieval rerank quality, and memory lifecycle cleanup so the agent memory system becomes more stable, explainable, and production-ready.",
   "userStories": [
     {
-      "id": "US-R15",
-      "title": "Wire RecoveryStateMachine into Runtime Flow",
-      "description": "As a runtime maintainer, I want the main recovery path to be driven by RecoveryStateMachine so retry, skip, partial replan, and checkpoint replan use one explicit source of truth.",
+      "id": "US-R20",
+      "title": "Expand User Profile Taxonomy and Preserve Preference Timeline",
+      "description": "As a product maintainer, I want profile extraction to support richer preference types with confidence decay and preference history so cross-session personalization is more accurate and traceable.",
       "acceptanceCriteria": [
-        "runtime_agent integrates RecoveryStateMachine into the main recovery flow instead of leaving it as a detached helper",
-        "checkpoint updates, recovery attempts, and replan event writes stay behaviorally compatible while becoming more explicit",
-        "Skip-step, rebuild-remaining-plan, and full replan paths still work under the unified state flow",
-        "Add or update focused backend tests for runtime recovery transitions",
-        "Run the matching backend unittest modules"
+        "UserProfile extraction supports preference categories beyond language, including framework, domain, output format, and tone",
+        "Profile matching uses an effective confidence that decays over time instead of relying only on the raw stored confidence",
+        "New preferences do not blindly overwrite older ones; historical preference facts remain traceable via status or timeline semantics",
+        "Frontend profile views remain compatible and expose enough metadata to distinguish active preference vs historical preference",
+        "Add or update focused backend tests for extraction, decay scoring, and timeline/history behavior"
       ],
       "priority": 1,
       "passes": true,
       "notes": ""
     },
     {
-      "id": "US-R16",
-      "title": "Complete Context Governance Contract",
-      "description": "As a runtime maintainer, I want ContextLayer and ContextBudgetUsage to expose complete budget, trim, and compression metadata for the major context sources so multi-turn execution is easier to reason about.",
+      "id": "US-R21",
+      "title": "Add Working Memory Compression and Disposable Intermediate Results",
+      "description": "As a runtime maintainer, I want completed execution steps to write compressed summaries into working memory while allowing raw intermediate outputs to be discarded so context stays concise during longer runs.",
       "acceptanceCriteria": [
-        "Context governance metadata covers the major runtime layers including recalled memories, profile hits, and session-derived context",
-        "Runtime updates after recall or compression keep the structured budget and trim fields accurate",
-        "Current UI payloads remain compatible while gaining richer context trace metadata",
-        "Add or update backend tests for context governance and budget updates",
-        "Run the matching backend unittest modules"
+        "Runtime step completion writes a compact summary into working_memory instead of only preserving raw intermediate text",
+        "Intermediate results can be marked as discardable or omitted from future context assembly after the summary is captured",
+        "ContextBuilder and runtime context payloads expose the updated working-memory behavior without breaking existing consumers",
+        "The console and task detail views remain compatible with the new summarized working-memory representation",
+        "Add or update focused backend tests for working-memory summarization, trimming, and discardable output behavior"
       ],
       "priority": 2,
       "passes": false,
       "notes": ""
     },
     {
-      "id": "US-R17",
-      "title": "Unify Execution Trace Contract for Console Consumers",
-      "description": "As a product maintainer, I want execution, recovery, context, and tool traces to align on a clearer contract so the console and task detail views can rely less on UI-side inference.",
+      "id": "US-R22",
+      "title": "Introduce Professional Rerank Integration with Safe Fallback",
+      "description": "As a RAG maintainer, I want retrieval to support a dedicated rerank stage with a fallback path so recall quality improves without sacrificing local reliability.",
       "acceptanceCriteria": [
-        "Execution trace payloads expose stable kinds, labels, and metadata for recovery, context, and tool-related events",
-        "ExecutionRegistry definitions are used more consistently by runtime trace producers",
-        "Current console and task-detail consumers remain compatible or become simpler",
-        "Add or update backend tests for trace contract output and frontend build if touched",
-        "Run the relevant backend unittest modules and frontend build if touched"
+        "Recall flow separates candidate generation from rerank instead of relying only on fixed manual scoring",
+        "A rerank provider abstraction exists and can fall back to the current heuristic scoring when credentials or provider support are unavailable",
+        "Retrieval responses still expose score, reason, and channel metadata after rerank is introduced",
+        "The implementation does not regress current manual-ingestion or parent-document recall behavior",
+        "Add or update focused backend tests for rerank ordering, fallback mode, and metadata stability"
       ],
       "priority": 3,
       "passes": false,
       "notes": ""
     },
     {
-      "id": "US-R18",
-      "title": "Harden Task Detail Recovery Payload",
-      "description": "As a product maintainer, I want task-detail responses to expose a stable recovery payload for failure type, strategy, attempt count, and resume origin so the UI can explain recovery decisions directly.",
+      "id": "US-R23",
+      "title": "Add Memory Expiration and Cleanup Governance",
+      "description": "As a platform maintainer, I want long-term memories and profile facts to support staleness, archival, and cleanup rules so memory quality does not degrade over time.",
       "acceptanceCriteria": [
-        "Task detail payloads expose complete structured recovery fields from the main runtime path",
-        "Recovery metadata no longer depends on stitching together partially related fields in the frontend",
-        "The new or clarified payload stays compatible with current task detail consumers",
-        "Add or update backend tests and frontend build if touched",
-        "Run the matching backend unittest modules and frontend build if touched"
+        "Long-term memories and relevant profile facts support richer lifecycle states such as active, stale, archived, or deleted",
+        "A cleanup policy can identify low-value or superseded memories without immediately hard-deleting useful records",
+        "Runtime and management APIs remain compatible while exposing enough lifecycle metadata for UI or future automation consumers",
+        "Memory listing and retrieval logic handle stale or archived records intentionally instead of treating every record as equally current",
+        "Add or update focused backend tests for cleanup policy, lifecycle transitions, and retrieval filtering"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-R19",
-      "title": "Add Runtime Hardening Regression Harness",
-      "description": "As a platform maintainer, I want a compact regression harness for recovery flow, context governance, tool permission context, and trace payload output so later automation rounds do not silently break the hardened runtime.",
-      "acceptanceCriteria": [
-        "A focused regression test set covers the main runtime-hardening behaviors introduced across R11-R18",
-        "The recommended minimal regression command is documented in project docs or progress notes",
-        "The harness is small enough for regular use but broad enough to catch the most likely regressions",
-        "Run the new regression-oriented backend test selection and any matching frontend build if touched",
-        "Update progress knowledge if new reusable debugging or runtime patterns are discovered"
-      ],
-      "priority": 5,
       "passes": false,
       "notes": ""
     }
